@@ -117,7 +117,11 @@ def is_place_open(hours: dict) -> tuple[bool, str]:
     
     try:
         now = local_now()
-        current_day = now.strftime('%a').lower()  # 'mon', 'tue', etc.
+        
+        # FIX: Usar weekday() que retorna 0=Monday, 6=Sunday
+        # independiente del locale del sistema
+        days_order = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun']
+        current_day = days_order[now.weekday()]  # ✅ Siempre correcto
         current_time = now.strftime('%H:%M')
         
         # Obtener horarios del día actual
@@ -142,11 +146,7 @@ def is_place_open(hours: dict) -> tuple[bool, str]:
                         return (False, f"abre a las {open_time}")
         
         # Si no abre hoy, buscar próximo día
-        days_order = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun']
-        try:
-            current_idx = days_order.index(current_day)
-        except ValueError:
-            return (True, "")  # Si no podemos determinar el día, asumimos abierto
+        current_idx = now.weekday()
         
         for i in range(1, 8):
             next_idx = (current_idx + i) % 7
