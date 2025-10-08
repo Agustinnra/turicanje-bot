@@ -109,44 +109,89 @@ def format_distance(meters: float) -> str:
 
 def is_place_open(hours: dict) -> tuple[bool, str]:
     """
-    Verifica si un lugar está abierto basado en sus horarios
-    Retorna (está_abierto, próximo_horario)
+    Verifica si un lugar está abierto basado en sus horarios.
+    MANEJA CORRECTAMENTE: Horarios que cruzan medianoche (ej: 22:00-02:00)
+    Retorna: (está_abierto, próximo_horario)
     """
     if not hours:
-        return (True, "")  # Si no hay horarios, asumimos que está abierto
+        return (True, "")
     
     try:
         now = local_now()
         
-        # FIX: Usar weekday() que retorna 0=Monday, 6=Sunday
-        # independiente del locale del sistema
+        # ✅ FIX: Usar weekday() que es independiente del locale
         days_order = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun']
-        current_day = days_order[now.weekday()]  # ✅ Siempre correcto
-        current_time = now.strftime('%H:%M')
+        current_day = days_order[now.weekday()]
+        current_time_str = now.strftime('%H:%M')
+        current_time_obj = now.time()  # Objeto time para comparación
+        
+        print(f"[HOURS-CHECK] Día: {current_day}, Hora actual: {current_time_str}")
         
         # Obtener horarios del día actual
         day_hours = hours.get(current_day, [])
         
-        # Verificar si está abierto ahora
+        if day_hours:
+            print(f"[HOURS-CHECK] Horarios de {current_day}: {day_hours}")
+        
+        # ✅ Verificar si está abierto AHORA
         if isinstance(day_hours, list):
             for schedule in day_hours:
                 if isinstance(schedule, list) and len(schedule) >= 2:
-                    open_time = schedule[0]
-                    close_time = schedule[1]
-                    if open_time <= current_time <= close_time:
-                        return (True, f"hasta {close_time}")
+                    open_str = schedule[0]
+                    close_str = schedule[1]
+                    
+                    # Convertir a objetos time para comparación correcta
+                    try:
+                        open_parts = open_str.split(":")
+                        close_parts = close_str.split(":")
+                        
+                        open_time = time(int(open_parts[0]), int(open_parts[1]))
+                        close_time = time(int(close_parts[0]), int(close_parts[1]))
+                        
+                        print(f"[HOURS-CHECK] Verificando intervalo: {open_str}-{close_str}")
+                        
+                        # CASO 1: Horario normal (no cruza medianoche)
+                        # Ejemplo: 08:00 - 20:00
+                        if open_time < close_time:
+                            if open_time <= current_time_obj <= close_time:
+                                print(f"[HOURS-CHECK] ✅ ABIERTO (horario normal)")
+                                return (True, f"hasta {close_str}")
+                        
+                        # CASO 2: Horario que cruza medianoche
+                        # Ejemplo: 22:00 - 02:00
+                        else:
+                            if current_time_obj >= open_time or current_time_obj <= close_time:
+                                print(f"[HOURS-CHECK] ✅ ABIERTO (cruza medianoche)")
+                                return (True, f"hasta {close_str}")
+                    
+                    except (ValueError, IndexError) as e:
+                        print(f"[HOURS-CHECK] Error parseando horario: {e}")
+                        continue
         
-        # Si no está abierto, buscar próxima apertura
-        # Primero ver si abre más tarde hoy
+        print(f"[HOURS-CHECK] ❌ CERRADO ahora")
+        
+        # ✅ Si no está abierto, buscar PRÓXIMA apertura
+        
+        # 1. Buscar si abre más tarde HOY
         if isinstance(day_hours, list):
             for schedule in day_hours:
                 if isinstance(schedule, list) and len(schedule) >= 2:
-                    open_time = schedule[0]
-                    if open_time > current_time:
-                        return (False, f"abre a las {open_time}")
+                    open_str = schedule[0]
+                    try:
+                        open_parts = open_str.split(":")
+                        open_time = time(int(open_parts[0]), int(open_parts[1]))
+                        
+                        if open_time > current_time_obj:
+                            return (False, f"abre a las {open_str}")
+                    except:
+                        continue
         
-        # Si no abre hoy, buscar próximo día
+        # 2. Buscar próximo día que abre
         current_idx = now.weekday()
+        day_names_es = {
+            'mon': 'lunes', 'tue': 'martes', 'wed': 'miércoles',
+            'thu': 'jueves', 'fri': 'viernes', 'sat': 'sábado', 'sun': 'domingo'
+        }
         
         for i in range(1, 8):
             next_idx = (current_idx + i) % 7
@@ -157,17 +202,19 @@ def is_place_open(hours: dict) -> tuple[bool, str]:
                 first_schedule = next_hours[0]
                 if isinstance(first_schedule, list) and len(first_schedule) >= 2:
                     open_time = first_schedule[0]
-                    day_names_es = {
-                        'mon': 'lunes', 'tue': 'martes', 'wed': 'miércoles',
-                        'thu': 'jueves', 'fri': 'viernes', 'sat': 'sábado', 'sun': 'domingo'
-                    }
-                    return (False, f"abre {day_names_es.get(next_day, next_day)} a las {open_time}")
+                    day_name = day_names_es.get(next_day, next_day)
+                    return (False, f"abre {day_name} a las {open_time}")
         
+        # Si no encontramos próxima apertura, retornar cerrado sin info
+        return (False, "")
+    
     except Exception as e:
         print(f"[ERROR] is_place_open: {e}")
-        return (True, "")  # En caso de error, asumimos abierto para no bloquear
+        import traceback
+        traceback.print_exc()
+        return (True, "")  # En caso de error, asumimos abierto
     
-    return (True, "")  # Por defecto, asumimos abierto
+    return (True, "")
 
 # ================= NOMBRES ALEATORIOS =================
 NOMBRES_SPANISH = [
@@ -1296,6 +1343,56 @@ async def handle_webhook(request: Request):
     
     return {"status": "processed"}
 
+
+@app.get("/debug/test-hours/{place_id}")
+async def test_place_hours(place_id: int):
+    """
+    Endpoint para probar la lógica de horarios con un lugar específico
+    Uso: GET http://localhost:8000/debug/test-hours/123
+    """
+    try:
+        sql = """
+        SELECT id, name, hours
+        FROM public.places 
+        WHERE id = %s;
+        """
+        
+        with get_pool().connection() as conn, conn.cursor(row_factory=psycopg.rows.dict_row) as cur:
+            cur.execute(sql, (place_id,))
+            row = cur.fetchone()
+            
+            if not row:
+                return {"status": "not_found", "id": place_id}
+            
+            place = dict(row)
+            hours = dict(place.get("hours", {})) if place.get("hours") else {}
+            
+            # Probar la función is_place_open
+            is_open, next_hours = is_place_open(hours)
+            
+            now = local_now()
+            current_day = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'][now.weekday()]
+            current_time = now.strftime('%H:%M')
+            
+            return {
+                "id": place["id"],
+                "name": place["name"],
+                "current_day": current_day,
+                "current_time": current_time,
+                "hours_json": hours,
+                "is_open": is_open,
+                "next_hours": next_hours,
+                "status": "✅ ABIERTO" if is_open else "❌ CERRADO"
+            }
+            
+    except Exception as e:
+        import traceback
+        return {
+            "status": "error", 
+            "message": str(e),
+            "traceback": traceback.format_exc()
+        }
+
 async def handle_text_message(wa_id: str, text: str):
     print(f"[TEXT] {wa_id}: {text}")
     
@@ -1458,6 +1555,10 @@ async def handle_text_message(wa_id: str, text: str):
         
         await send_whatsapp_message(wa_id, response)
 
+
+
+        
+
 async def handle_location_message(wa_id: str, lat: float, lng: float):
     print(f"[LOCATION] {wa_id}: lat={lat}, lng={lng}")
     
@@ -1505,6 +1606,8 @@ async def handle_location_message(wa_id: str, lat: float, lng: float):
             response = "Perfect! Got your location 📍 Now tell me, what are you craving?"
         
         await send_whatsapp_message(wa_id, response)
+
+
 
 if __name__ == "__main__":
     import uvicorn
@@ -1582,39 +1685,80 @@ def _ss_validate_min(row):
     if not (addr or (lat is not None and lon is not None)):
         raise HTTPException(status_code=422, detail="Falta 'address' o (lat y lon)")
 
-# === horarios: HH:mm -> estructura JSON por día ===
-_TIME_RX = re.compile(r"^([01]\d|2[0-3]):([0-5]\d)$")
+# === horarios: HH:mm -> estructura JSON por día (ACTUALIZADO) ===
 
 def _norm_time(s):
-    if s is None: return None
+    """
+    Normaliza tiempo desde Google Sheet a formato HH:MM
+    Maneja: "8:30:00", "08:30:00", "8:30", "08:30", "8:00", etc.
+    """
+    if s is None: 
+        return None
+    
     s = str(s).strip()
-    if not s: return None
-    m = _TIME_RX.match(s)
-    if m: return f"{m.group(1)}:{m.group(2)}"
-    # tolera "8:00", "9:5" -> zero-pad
+    if not s: 
+        return None
+    
+    # ✅ FIX: Remover segundos si existen: "8:30:00" -> "8:30"
+    if s.count(':') == 2:
+        parts = s.split(':')
+        s = f"{parts[0]}:{parts[1]}"  # Quitar segundos
+    
+    # Separar horas y minutos
     parts = s.split(":")
-    if len(parts)==2 and parts[0].isdigit() and parts[1].isdigit():
-        hh = int(parts[0]); mm = int(parts[1])
-        if 0<=hh<=23 and 0<=mm<=59:
-            return f"{hh:02d}:{mm:02d}"
-    return None
+    if len(parts) != 2:
+        return None
+    
+    try:
+        hh = int(parts[0])
+        mm = int(parts[1])
+        
+        # Validar rangos
+        if not (0 <= hh <= 23 and 0 <= mm <= 59):
+            return None
+        
+        # ✅ Retornar siempre con zero-padding: "8:30" -> "08:30"
+        return f"{hh:02d}:{mm:02d}"
+    
+    except (ValueError, IndexError):
+        return None
 
 def _extract_hours(row):
     """
-    Lee *_1_open/_1_close y *_2_open/_2_close por día.
-    Genera: {"mon":[["08:00","13:00"],["16:00","20:00"]], ...}
-    Sólo incluye días con intervalos válidos y open < close.
+    Lee horarios desde Google Sheet y los normaliza correctamente.
+    Genera: {"mon":[["08:00","20:00"],["21:00","23:00"]], ...}
+    
+    MANEJA:
+    - Formatos con segundos: "8:30:00" -> "08:30"
+    - Sin zero-padding: "8:30" -> "08:30"
+    - Horarios que cruzan medianoche: "22:00" - "02:00"
     """
     hours = {}
-    for d in _DAYS:
+    
+    for d in ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun']:
         day_list = []
-        for i in (1,2):
-            o = _norm_time(row.get(f"{d}_{i}_open"))
-            c = _norm_time(row.get(f"{d}_{i}_close"))
-            if o and c and o < c:
+        
+        for i in (1, 2):  # Dos posibles intervalos por día
+            open_raw = row.get(f"{d}_{i}_open")
+            close_raw = row.get(f"{d}_{i}_close")
+            
+            # ✅ Normalizar tiempos (maneja formato con segundos)
+            o = _norm_time(open_raw)
+            c = _norm_time(close_raw)
+            
+            # Validar que ambos existan
+            if o and c:
+                # ✅ PERMITIR horarios que cruzan medianoche
+                # No validar o < c porque puede ser 22:00 - 02:00
                 day_list.append([o, c])
+                print(f"[SHEET-HOURS] {d}_{i}: {open_raw} -> {o} | {close_raw} -> {c}")
+            elif o or c:
+                # Si solo uno existe, loguear advertencia
+                print(f"[SHEET-HOURS] ⚠️ {d}_{i}: Incompleto - open={open_raw}, close={close_raw}")
+        
         if day_list:
             hours[d] = day_list
+    
     return hours if hours else None
 
 # === mapeo Sheet -> public.places ===
