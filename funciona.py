@@ -39,40 +39,6 @@ DB_PASSWORD = os.getenv("DB_PASSWORD", "")
 IDLE_RESET_SECONDS = int(os.getenv("IDLE_RESET_SECONDS", "120"))  # 2 minutos
 MAX_SUGGESTIONS = 5  # FIJO: Siempre 5 opciones
 
-# Configuración DUAL (DEV + PROD)
-DEV_PHONE_NUMBER_ID = "816732738189248"
-DEV_WHATSAPP_TOKEN = os.getenv("DEV_WHATSAPP_TOKEN", "")
-
-PROD_PHONE_NUMBER_ID = "840950589099677"
-PROD_WHATSAPP_TOKEN = os.getenv("PROD_WHATSAPP_TOKEN", "")
-
-ENVIRONMENT = os.getenv("ENVIRONMENT", "production")
-
-def get_environment_config(phone_number_id: str) -> dict:
-    """Determina si el mensaje viene de DEV o PROD"""
-    if phone_number_id == DEV_PHONE_NUMBER_ID:
-        return {
-            "env": "DEV",
-            "phone_number_id": DEV_PHONE_NUMBER_ID,
-            "whatsapp_token": DEV_WHATSAPP_TOKEN or WHATSAPP_TOKEN,
-            "prefix": "[DEV]"
-        }
-    elif phone_number_id == PROD_PHONE_NUMBER_ID:
-        return {
-            "env": "PROD", 
-            "phone_number_id": PROD_PHONE_NUMBER_ID,
-            "whatsapp_token": PROD_WHATSAPP_TOKEN or WHATSAPP_TOKEN,
-            "prefix": "[PROD]"
-        }
-    else:
-        return {
-            "env": "UNKNOWN",
-            "phone_number_id": phone_number_id,
-            "whatsapp_token": WHATSAPP_TOKEN,
-            "prefix": "[?]"
-        }
-
-
 # ================= APP =================
 app = FastAPI(title="Turicanje Bot", version="1.0.0")
 
@@ -328,29 +294,18 @@ def is_greeting(text: str) -> bool:
     return any(re.search(pattern, text_lower) for pattern in greeting_patterns)
 
 # ================= WHATSAPP =================
-async def send_whatsapp_message(to: str, message: str, phone_number_id: str = None):
-    # Determinar configuración
-    if phone_number_id:
-        config = get_environment_config(phone_number_id)
-    else:
-        config = {
-            "env": ENVIRONMENT.upper(),
-            "phone_number_id": PHONE_NUMBER_ID,
-            "whatsapp_token": WHATSAPP_TOKEN,
-            "prefix": f"[{ENVIRONMENT.upper()}]"
-        }
-    
+async def send_whatsapp_message(to: str, message: str):
     if not SEND_VIA_WHATSAPP:
-        print(f"\n{config['prefix']} [DRY-RUN] Mensaje a {to}:")
+        print(f"\n[DRY-RUN] Mensaje a {to}:")
         print(f"{message}\n")
         return
     
-    if not config["whatsapp_token"]:
-        print(f"{config['prefix']} [ERROR] Falta token")
+    if not (WHATSAPP_TOKEN and PHONE_NUMBER_ID):
+        print("[ERROR] Faltan credenciales de WhatsApp")
         return
     
-    url = f"https://graph.facebook.com/v20.0/{config['phone_number_id']}/messages"
-    headers = {"Authorization": f"Bearer {config['whatsapp_token']}"}
+    url = f"https://graph.facebook.com/v20.0/{PHONE_NUMBER_ID}/messages"
+    headers = {"Authorization": f"Bearer {WHATSAPP_TOKEN}"}
     data = {
         "messaging_product": "whatsapp",
         "to": to,
@@ -362,39 +317,25 @@ async def send_whatsapp_message(to: str, message: str, phone_number_id: str = No
         async with httpx.AsyncClient(timeout=20) as client:
             response = await client.post(url, json=data, headers=headers)
             if response.status_code >= 300:
-                print(f"{config['prefix']} [ERROR] WhatsApp API: {response.status_code} - {response.text}")
+                print(f"[ERROR] WhatsApp API: {response.status_code} - {response.text}")
             else:
-                print(f"{config['prefix']} [OK] Mensaje enviado a {to}")
+                print(f"[OK] Mensaje enviado a {to}")
     except Exception as e:
-        print(f"{config['prefix']} [ERROR] Enviando mensaje: {e}")
+        print(f"[ERROR] Enviando mensaje: {e}")
 
-async def send_whatsapp_image(to: str, image_url: str, caption: Optional[str] = None, phone_number_id: str = None):
-    """
-    Envía imagen usando el token correcto según el phone_number_id
-    """
-    # Determinar configuración
-    if phone_number_id:
-        config = get_environment_config(phone_number_id)
-    else:
-        config = {
-            "env": ENVIRONMENT.upper(),
-            "phone_number_id": PHONE_NUMBER_ID,
-            "whatsapp_token": WHATSAPP_TOKEN,
-            "prefix": f"[{ENVIRONMENT.upper()}]"
-        }
-    
+async def send_whatsapp_image(to: str, image_url: str, caption: Optional[str] = None):
     if not SEND_VIA_WHATSAPP:
-        print(f"\n{config['prefix']} [DRY-RUN] Imagen a {to}: {image_url}")
+        print(f"\n[DRY-RUN] Imagen a {to}: {image_url}")
         if caption:
             print(f"Caption: {caption}")
         return
     
-    if not config["whatsapp_token"]:
-        print(f"{config['prefix']} [ERROR] Falta token de WhatsApp para imagen")
+    if not (WHATSAPP_TOKEN and PHONE_NUMBER_ID):
+        print("[ERROR] Faltan credenciales de WhatsApp para imagen")
         return
     
-    url = f"https://graph.facebook.com/v20.0/{config['phone_number_id']}/messages"
-    headers = {"Authorization": f"Bearer {config['whatsapp_token']}"}
+    url = f"https://graph.facebook.com/v20.0/{PHONE_NUMBER_ID}/messages"
+    headers = {"Authorization": f"Bearer {WHATSAPP_TOKEN}"}
     data = {
         "messaging_product": "whatsapp",
         "to": to,
@@ -409,11 +350,11 @@ async def send_whatsapp_image(to: str, image_url: str, caption: Optional[str] = 
         async with httpx.AsyncClient(timeout=20) as client:
             response = await client.post(url, json=data, headers=headers)
             if response.status_code >= 300:
-                print(f"{config['prefix']} [ERROR] WhatsApp Image API: {response.status_code} - {response.text}")
+                print(f"[ERROR] WhatsApp Image API: {response.status_code} - {response.text}")
             else:
-                print(f"{config['prefix']} [OK] Imagen enviada a {to}")
+                print(f"[OK] Imagen enviada a {to}")
     except Exception as e:
-        print(f"{config['prefix']} [ERROR] Enviando imagen: {e}")
+        print(f"[ERROR] Enviando imagen: {e}")
 
 # ================= GESTIÓN DE USUARIOS =================
 user_sessions = {}
@@ -1375,11 +1316,6 @@ async def handle_webhook(request: Request):
         return {"status": "no changes"}
     
     value = changes[0].get("value", {})
-    
-    # ✅ NUEVO: Extraer phone_number_id
-    phone_number_id = value.get("metadata", {}).get("phone_number_id", "")
-    config = get_environment_config(phone_number_id)
-    
     messages = value.get("messages", [])
     
     if not messages:
@@ -1389,21 +1325,21 @@ async def handle_webhook(request: Request):
     from_wa = message.get("from", "")
     message_type = message.get("type", "")
     
-    print(f"{config['prefix']} [WEBHOOK] Mensaje de {from_wa}, tipo: {message_type}")  # ✅ Agregado prefix
+    print(f"[WEBHOOK] Mensaje de {from_wa}, tipo: {message_type}")
     
     if message_type == "text":
         text = message.get("text", {}).get("body", "").strip()
-        await handle_text_message(from_wa, text, phone_number_id)  # ✅ Agregado phone_number_id
+        await handle_text_message(from_wa, text)
         
     elif message_type == "location":
         location = message.get("location", {})
         lat = location.get("latitude")
         lng = location.get("longitude") 
         if lat and lng:
-            await handle_location_message(from_wa, float(lat), float(lng), phone_number_id)  # ✅ Agregado
+            await handle_location_message(from_wa, float(lat), float(lng))
         
     else:
-        print(f"{config['prefix']} [WEBHOOK] Tipo de mensaje no soportado: {message_type}")  # ✅ Agregado prefix
+        print(f"[WEBHOOK] Tipo de mensaje no soportado: {message_type}")
     
     return {"status": "processed"}
 
@@ -1457,9 +1393,8 @@ async def test_place_hours(place_id: int):
             "traceback": traceback.format_exc()
         }
 
-async def handle_text_message(wa_id: str, text: str, phone_number_id: str = None):
-    config = get_environment_config(phone_number_id) if phone_number_id else {"prefix": ""}
-    print(f"{config.get('prefix', '')} [TEXT] {wa_id}: {text}")
+async def handle_text_message(wa_id: str, text: str):
+    print(f"[TEXT] {wa_id}: {text}")
     
     detected_language = detect_language_simple(text)
     session = get_or_create_user_session(wa_id, detected_language)
@@ -1477,7 +1412,7 @@ async def handle_text_message(wa_id: str, text: str, phone_number_id: str = None
     if ((is_new_session and not craving) or 
         (intent == "greeting" and not craving and time_since_last > IDLE_RESET_SECONDS)):
         greeting = await generate_humanized_greeting(session["name"], session["language"])
-        await send_whatsapp_message(wa_id, greeting, phone_number_id)
+        await send_whatsapp_message(wa_id, greeting)
         session["is_new"] = False
         return
     
@@ -1624,9 +1559,8 @@ async def handle_text_message(wa_id: str, text: str, phone_number_id: str = None
 
         
 
-async def handle_location_message(wa_id: str, lat: float, lng: float, phone_number_id: str = None):
-    config = get_environment_config(phone_number_id) if phone_number_id else {"prefix": ""}
-    print(f"{config.get('prefix', '')} [LOCATION] {wa_id}: lat={lat}, lng={lng}")
+async def handle_location_message(wa_id: str, lat: float, lng: float):
+    print(f"[LOCATION] {wa_id}: lat={lat}, lng={lng}")
     
     if wa_id not in user_sessions:
         print(f"[LOCATION] No hay sesión para {wa_id}")
