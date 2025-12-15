@@ -37,7 +37,7 @@ DB_PASSWORD = os.getenv("DB_PASSWORD", "")
 
 # Configuración
 IDLE_RESET_SECONDS = int(os.getenv("IDLE_RESET_SECONDS", "120"))  # 2 minutos
-MAX_SUGGESTIONS = 5  # FIJO: Siempre 5 opciones
+MAX_SUGGESTIONS = 3  # FIJO: Siempre 3 opciones
 
 # Configuración DUAL (DEV + PROD)
 DEV_PHONE_NUMBER_ID = "816732738189248"
@@ -1520,11 +1520,11 @@ async def handle_text_message(wa_id: str, text: str, phone_number_id: str = None
             results = await search_places_without_location_ai(craving, session["language"], wa_id, 10)
         
         # Limitar a 5 para mostrar, pero buscar hasta 10
-        display_results = results[:5]
+        display_results = results[:MAX_SUGGESTIONS]
         print(f"[DEBUG] FINAL: {len(display_results)} resultados enviados de {len(results)} encontrados")
         
         if display_results:
-            session["last_results"] = results  # Guardamos todos los resultados
+            session["last_results"] = display_results  # Guardamos todos los resultados
             intro_message = get_smart_response_message(display_results, craving, session["language"], session.get("user_location") is not None)
             results_list = format_results_list(display_results, session["language"])
             
@@ -1565,11 +1565,11 @@ async def handle_text_message(wa_id: str, text: str, phone_number_id: str = None
             results = await search_places_without_location_ai(craving, session["language"], wa_id, 10)
         
         # Limitar a 5 para mostrar, pero buscar hasta 10
-        display_results = results[:5]
+        display_results = results[:MAX_SUGGESTIONS]
         print(f"[DEBUG REGULAR] FINAL: {len(display_results)} resultados enviados de {len(results)} encontrados")
         
         if display_results:
-            session["last_results"] = results  # Guardamos todos los resultados
+            session["last_results"] = display_results  # Guardamos todos los resultados
             intro_message = get_smart_response_message(display_results, craving, session["language"], session.get("user_location") is not None)
             results_list = format_results_list(display_results, session["language"])
             
@@ -1639,16 +1639,16 @@ async def handle_location_message(wa_id: str, lat: float, lng: float, phone_numb
     if session.get("last_search") and session["last_search"].get("craving"):
         craving = session["last_search"]["craving"]
         results = await search_places_with_location_ai(craving, lat, lng, session["language"], wa_id, 10)
-        
-        # Limitar a 5 para mostrar, pero buscar hasta 10
-        display_results = results[:5]
+
+        # Limitar a MAX_SUGGESTIONS para mostrar, pero buscar hasta 10
+        display_results = results[:MAX_SUGGESTIONS]
         print(f"[DEBUG UBICACIÓN] FINAL: {len(display_results)} resultados enviados de {len(results)} encontrados")
-        
+
         if display_results:
-            session["last_results"] = results  # Guardamos todos los resultados
+            session["last_results"] = display_results
             intro_message = get_smart_response_message(display_results, craving, session["language"], True)
             results_list = format_results_list(display_results, session["language"])
-            
+
             if len(display_results) == 1:
                 response = intro_message
             else:
@@ -1656,22 +1656,17 @@ async def handle_location_message(wa_id: str, lat: float, lng: float, phone_numb
                     response = f"{intro_message}\n\n{results_list}\n\nMándame el número del que te guste 📍"
                 else:
                     response = f"{intro_message}\n\n{results_list}\n\nSend me the number you want 📍"
-            
-            await send_whatsapp_message(wa_id, response)
+
+            await send_whatsapp_message(wa_id, response, phone_number_id)
         else:
             if session["language"] == "es":
                 response = f"No encontré {craving} cerca de ti 😕 ¿Qué tal si probamos con otra cosa?"
             else:
                 response = f"Couldn't find {craving} near you 😕 How about we try something else?"
-            
-            await send_whatsapp_message(wa_id, response)
-    else:
-        if session["language"] == "es":
-            response = "¡Perfecto! Ya tengo tu ubicación 📍 Ahora cuéntame, ¿qué se te antoja comer?"
-        else:
-            response = "Perfect! Got your location 📍 Now tell me, what are you craving?"
-        
-        await send_whatsapp_message(wa_id, response)
+
+            await send_whatsapp_message(wa_id, response, phone_number_id)
+
+        return
 
 
 

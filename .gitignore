@@ -1,4 +1,7 @@
+
 .env
-.env.prod
-.venv/
+.env.local
+app_local.py
 __pycache__/
+*.pyc
+.DS_Store
