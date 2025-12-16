@@ -515,31 +515,37 @@ No explanations."""
 async def extract_intent_with_ai(text: str, language: str, name: str, wa_id: str) -> Dict[str, Any]:
     if not OPENAI_API_KEY:
         print(f"[AI-INTENT] {wa_id}: Sin API key, usando fallback")
-        return {"intent": "unknown", "craving": None, "needs_location": False}
+        return {"intent": "unknown", "craving": None, "needs_location": False, "business_name": None}
     
     try:
         if language == "es":
             system_prompt = f"""Eres {name}, analizas mensajes para extraer qué quiere comer/probar el usuario.
 NUNCA inventes comida que no mencionó. Si no menciona comida específica, craving es null.
-Responde SOLO en JSON con: {{"intent": "greeting|search|other", "craving": "texto exacto o null", "needs_location": true/false}}
+Si menciona el NOMBRE ESPECÍFICO de un restaurante/negocio (ej: "Starbucks", "McDonald's", "Domino's"), extráelo en business_name.
+Responde SOLO en JSON con: {{"intent": "greeting|search|business_search|other", "craving": "texto exacto o null", "needs_location": true/false, "business_name": "nombre exacto o null"}}
 
 Intents:
 - greeting: saludos iniciales  
-- search: busca comida/restaurante específico
+- business_search: busca un restaurante/negocio específico por nombre
+- search: busca comida/restaurante por tipo de comida
 - other: todo lo demás
 
-needs_location solo es true si pidió "cerca", "aquí cerca", etc."""
+needs_location solo es true si pidió "cerca", "aquí cerca", etc.
+business_name solo tiene valor si mencionó un nombre específico de negocio."""
         else:
             system_prompt = f"""You are {name}, you analyze messages to extract what the user wants to eat/try.
 NEVER invent food they didn't mention. If no specific food mentioned, craving is null.
-Respond ONLY in JSON: {{"intent": "greeting|search|other", "craving": "exact text or null", "needs_location": true/false}}
+If they mention a SPECIFIC restaurant/business NAME (e.g., "Starbucks", "McDonald's", "Domino's"), extract it in business_name.
+Respond ONLY in JSON: {{"intent": "greeting|search|business_search|other", "craving": "exact text or null", "needs_location": true/false, "business_name": "exact name or null"}}
 
 Intents:
 - greeting: initial greetings
-- search: looking for specific food/restaurant  
+- business_search: looking for a specific restaurant/business by name
+- search: looking for specific food/restaurant by food type
 - other: everything else
 
-needs_location only true if they asked for "nearby", "close", etc."""
+needs_location only true if they asked for "nearby", "close", etc.
+business_name only has value if they mentioned a specific business name."""
         
         user_prompt = f"Analyze this message: '{text}'"
         
@@ -569,8 +575,9 @@ needs_location only true if they asked for "nearby", "close", etc."""
             intent = result.get("intent", "other")
             craving = result.get("craving")
             needs_location = result.get("needs_location", False)
+            business_name = result.get("business_name")
             
-            if intent not in ["greeting", "search", "other"]:
+            if intent not in ["greeting", "search", "business_search", "other"]:
                 intent = "other"
             
             if craving and isinstance(craving, str):
@@ -580,12 +587,20 @@ needs_location only true if they asked for "nearby", "close", etc."""
             else:
                 craving = None
             
-            print(f"[AI-INTENT] {wa_id}: intent={intent}, craving={craving}, needs_location={needs_location}")
+            if business_name and isinstance(business_name, str):
+                business_name = business_name.strip()
+                if not business_name or business_name.lower() in ["null", "none", ""]:
+                    business_name = None
+            else:
+                business_name = None
+            
+            print(f"[AI-INTENT] {wa_id}: intent={intent}, craving={craving}, business_name={business_name}, needs_location={needs_location}")
             
             return {
                 "intent": intent,
                 "craving": craving, 
-                "needs_location": bool(needs_location)
+                "needs_location": bool(needs_location),
+                "business_name": business_name
             }
     
     except Exception as e:
@@ -596,12 +611,63 @@ needs_location only true if they asked for "nearby", "close", etc."""
     return {
         "intent": fallback_intent,
         "craving": None,
-        "needs_location": False
+        "needs_location": False,
+        "business_name": None
     }
 
 
-
 # ================= BASE DE DATOS: NUEVO ORDEN =================
+
+def search_place_by_name(business_name: str) -> Optional[Dict[str, Any]]:
+    """
+    Busca un negocio específico por nombre exacto o similar
+    Retorna el primer resultado que coincida
+    """
+    if not business_name:
+        return None
+    
+    try:
+        # Búsqueda por similitud de nombre (case-insensitive)
+        sql = """
+        SELECT id, name, category, products, priority, cashback, hours, 
+               address, phone, url_order, imagen_url, url_extra, afiliado,
+               lat, lng
+        FROM public.places 
+        WHERE LOWER(name) LIKE %(search_pattern)s
+        ORDER BY 
+            CASE WHEN LOWER(name) = %(exact_match)s THEN 0 ELSE 1 END,
+            LENGTH(name) ASC
+        LIMIT 1;
+        """
+        
+        search_pattern = f"%{business_name.lower()}%"
+        exact_match = business_name.lower()
+        
+        params = {
+            "search_pattern": search_pattern,
+            "exact_match": exact_match
+        }
+        
+        print(f"[DB-SEARCH-NAME] Buscando negocio: '{business_name}'")
+        
+        with get_pool().connection() as conn, conn.cursor(row_factory=psycopg.rows.dict_row) as cur:
+            cur.execute(sql, params)
+            row = cur.fetchone()
+            
+            if row:
+                place = dict(row)
+                place["products"] = list(place.get("products") or [])
+                place["hours"] = dict(place.get("hours") or {})
+                print(f"[DB-SEARCH-NAME] Encontrado: {place['name']}")
+                return place
+            else:
+                print(f"[DB-SEARCH-NAME] No encontrado: '{business_name}'")
+                return None
+            
+    except Exception as e:
+        print(f"[DB-SEARCH-NAME] Error: {e}")
+        return None
+
 def search_places_without_location(craving: str, limit: int = 10) -> List[Dict[str, Any]]:
     """NUEVO ORDEN: producto -> afiliado -> prioridad -> id"""
     if not craving:
@@ -1470,10 +1536,40 @@ async def handle_text_message(wa_id: str, text: str, phone_number_id: str = None
     intent = intent_data.get("intent", "other")
     craving = intent_data.get("craving")
     needs_location = intent_data.get("needs_location", False)
+    business_name = intent_data.get("business_name")  # ✅ NUEVO
     
     time_since_last = time.time() - session.get("last_seen", 0)
     is_new_session = session.get("is_new")
     has_greeting_words = any(word in text.lower() for word in ['hola', 'hello', 'hi', 'buenas', 'buenos'])
+    
+    # ✅ NUEVO: BÚSQUEDA POR NOMBRE DE NEGOCIO
+    if intent == "business_search" and business_name:
+        session["is_new"] = False
+        
+        place = search_place_by_name(business_name)
+        
+        if place:
+            # Enviar detalles del negocio directamente
+            details = format_place_details(place, session["language"])
+            await send_whatsapp_message(wa_id, details, phone_number_id)
+            
+            # Enviar imagen si existe
+            image_url = place.get("imagen_url")
+            if image_url:
+                await send_whatsapp_image(wa_id, image_url, phone_number_id=phone_number_id)
+            
+            # Guardar en sesión por si quiere más info
+            session["last_results"] = [place]
+        else:
+            # No encontrado
+            if session["language"] == "es":
+                response = f"No encontré '{business_name}' en mi lista 😕 ¿Quieres que busque algo más o me dices qué tipo de comida te gustaría?"
+            else:
+                response = f"Couldn't find '{business_name}' on my list 😕 Want me to search for something else or tell me what kind of food you'd like?"
+            
+            await send_whatsapp_message(wa_id, response, phone_number_id)
+        
+        return
     
     # ESCENARIO 1: Solo saludo sin craving
     if ((is_new_session and not craving) or 
