@@ -599,6 +599,95 @@ needs_location only true if they asked for "nearby", "close", etc."""
         "needs_location": False
     }
 
+def extract_place_name_from_where_query(text: str) -> Optional[str]:
+    """
+    Detecta queries tipo:
+    - 'donde esta el manjar'
+    - 'dónde queda el manjar'
+    - 'donde se encuentra el manjar'
+    y devuelve: 'el manjar'
+    """
+    if not text:
+        return None
+
+    t = text.strip().lower()
+    t = re.sub(r"\s+", " ", t)
+
+    patterns = [
+        r"^(?:donde|dónde)\s+(?:esta|está|queda|se\s+encuentra)\s+(?P<name>.+)$",
+    ]
+
+    for p in patterns:
+        m = re.match(p, t, flags=re.IGNORECASE)
+        if m:
+            name = (m.group("name") or "").strip()
+            # limpiar signos finales tipo "??", ".", etc.
+            name = re.sub(r"[^\w\sáéíóúüñ]+$", "", name, flags=re.UNICODE).strip()
+            return name if name else None
+
+    return None
+
+
+def find_place_by_exact_name(place_name: str) -> Optional[Dict[str, Any]]:
+    """
+    1) Intenta match exacto por name (case-insensitive).
+    2) Si no hay, intenta LIKE y si solo hay 1 match, lo devuelve.
+    """
+    if not place_name:
+        return None
+
+    place_name = place_name.strip()
+    if not place_name:
+        return None
+
+    try:
+        sql_exact = """
+        SELECT id, name, category, products, priority, cashback, hours,
+               address, phone, url_order, imagen_url, url_extra, afiliado,
+               lat, lng
+        FROM public.places
+        WHERE LOWER(name) = LOWER(%s)
+        LIMIT 1;
+        """
+
+        with get_pool().connection() as conn, conn.cursor(row_factory=psycopg.rows.dict_row) as cur:
+            cur.execute(sql_exact, (place_name,))
+            row = cur.fetchone()
+
+            if row:
+                place = dict(row)
+                place["products"] = list(place.get("products") or [])
+                place["hours"] = dict(place.get("hours") or {})
+                return place
+
+        # Fallback: si la persona escribió algo muy parecido y solo hay 1 coincidencia
+        sql_like = """
+        SELECT id, name, category, products, priority, cashback, hours,
+               address, phone, url_order, imagen_url, url_extra, afiliado,
+               lat, lng
+        FROM public.places
+        WHERE LOWER(name) LIKE LOWER(%s)
+        ORDER BY priority DESC, afiliado DESC, id ASC
+        LIMIT 5;
+        """
+
+        pattern = f"%{place_name}%"
+        with get_pool().connection() as conn, conn.cursor(row_factory=psycopg.rows.dict_row) as cur:
+            cur.execute(sql_like, (pattern,))
+            rows = cur.fetchall() or []
+
+            if len(rows) == 1:
+                place = dict(rows[0])
+                place["products"] = list(place.get("products") or [])
+                place["hours"] = dict(place.get("hours") or {})
+                return place
+
+    except Exception as e:
+        print(f"[DB-EXACT] Error buscando '{place_name}': {e}")
+
+    return None
+
+
 # ================= BASE DE DATOS: NUEVO ORDEN =================
 def search_places_without_location(craving: str, limit: int = 10) -> List[Dict[str, Any]]:
     """NUEVO ORDEN: producto -> afiliado -> prioridad -> id"""
@@ -1506,7 +1595,31 @@ async def handle_text_message(wa_id: str, text: str, phone_number_id: str = None
         except ValueError:
             pass
 
-    
+        # ✅ NUEVO: Si preguntan "donde está X", buscamos por NOMBRE y respondemos SOLO ese negocio
+    place_name_query = extract_place_name_from_where_query(text)
+    if place_name_query:
+        place = find_place_by_exact_name(place_name_query)
+
+        if place:
+            details = format_place_details(place, session["language"])
+
+            # (Opcional) también compartir link del mapa interactivo
+            if session["language"] == "es":
+                details += f"\n\n🗺️ Ver en mapa: {INTERACTIVE_MAP_URL}"
+            else:
+                details += f"\n\n🗺️ View on map: {INTERACTIVE_MAP_URL}"
+
+            await send_whatsapp_message(wa_id, details)
+
+            image_url = place.get("imagen_url")
+            if image_url:
+                await send_whatsapp_image(wa_id, image_url)
+
+            # Guardar como último resultado (1 solo) por consistencia
+            session["last_results"] = [place]
+            session["is_new"] = False
+            return
+
     # ESCENARIOS 2 y 3: Hay craving con saludo
     if craving and (is_new_session or (has_greeting_words and craving)):
         session["is_new"] = False
