@@ -928,89 +928,73 @@ async def search_places_with_location_ai(craving: str, user_lat: float, user_lng
         return []
 
 def format_results_list(results: List[Dict[str, Any]], language: str) -> str:
-    """Lista estilizada con información completa del negocio incluyendo horarios"""
+    """Lista estilizada con información completa del negocio incluyendo horarios."""
     if not results:
         return ""
-    
-    lines = []
+
+    lines: List[str] = []
+
     for idx, place in enumerate(results, 1):
-        name = place.get("name", "Sin nombre")
-        distance = place.get("distance_text", "")
-        url = place.get("url_order") or place.get("url_extra", "")
-        cashback = place.get("cashback", False)
-        hours = place.get("hours", {})
-        
-        # Determinar si tiene servicio a domicilio basado en si tiene url_order
+        name = place.get("name") or place.get("name_es") or place.get("name_en") or "Sin nombre"
+        distance = place.get("distance_text", "") or ""
+        url = place.get("url_order") or place.get("url_extra") or ""
+        cashback = bool(place.get("cashback", False))
+        hours = place.get("hours") or {}
+
+        # Servicio a domicilio: lo inferimos por url_order
         has_delivery = bool(place.get("url_order"))
-        
-        # Verificar si está abierto
-        is_open, hours_info = is_place_open(hours)
-        
-        if hours_info == "horario no disponible":
-            business_info = [f"📍 {name} ⚪ HORARIO NO DISPONIBLE"]
-        elif is_open:
-            business_info = [f"📍 {name} 🟢 ABIERTO"]
-            if hours_info:
-                business_info[0] += f" ({hours_info})"
-        else:
-            business_info = [f"📍 {name} 🔴 CERRADO"]
-            if hours_info:
-                business_info[0] += f" ({hours_info})"
-            
-            # Servicio a domicilio
-            delivery_text = "Sí ✅" if has_delivery else "No ❌"
-            business_info.append(f"🚚 Servicio a domicilio: {delivery_text}")
-            
-            # Cashback
-            cashback_text = "Sí 💰 (cashback)" if cashback else "No"
-            business_info.append(f"💳 Acumula cashback: {cashback_text}")
-            
-            # Distancia
-            if distance:
-                business_info.append(f"📍 Distancia: {distance}")
-            
-            # URL del lugar
-            if url:
-                business_info.append(f"🔗 Ver el lugar: {url}")
-            
-        else:
-            # Título del negocio con estado en inglés
-            # Check if open
+
+        # Abierto / cerrado (usa tu función existente)
         is_open, hours_info = is_place_open(hours)
 
-        if hours_info == "horario no disponible":
-            business_info = [f"📍 {name} ⚪ HOURS NOT AVAILABLE"]
-        elif is_open:
-            business_info = [f"📍 {name} 🟢 OPEN"]
-            if hours_info:
-                business_info[0] += f" ({hours_info})"
-        else:
-            business_info = [f"📍 {name} 🔴 CLOSED"]
-            if hours_info:
-                business_info[0] += f" ({hours_info})"
+        if language == "es":
+            if hours_info == "horario no disponible":
+                title = f"📍 {idx}) {name} ⚪ HORARIO NO DISPONIBLE"
+            elif is_open:
+                title = f"📍 {idx}) {name} 🟢 ABIERTO"
+                if hours_info:
+                    title += f" ({hours_info})"
+            else:
+                title = f"📍 {idx}) {name} 🔴 CERRADO"
+                if hours_info:
+                    title += f" ({hours_info})"
 
-            
-            # Servicio a domicilio
-            delivery_text = "Yes ✅" if has_delivery else "No ❌"
-            business_info.append(f"🚚 Home delivery: {delivery_text}")
-            
-            # Cashback
-            cashback_text = "Yes 💰 (cashback)" if cashback else "No"
-            business_info.append(f"💳 Earns cashback: {cashback_text}")
-            
-            # Distancia
+            block = [title]
+            block.append(f"🚚 Servicio a domicilio: {'Sí ✅' if has_delivery else 'No ❌'}")
+            block.append(f"💳 Acumula cashback: {'Sí 💰' if cashback else 'No'}")
+
             if distance:
-                business_info.append(f"📍 Distance: {distance}")
-            
-            # URL del lugar
+                block.append(f"📍 Distancia: {distance}")
+
             if url:
-                business_info.append(f"🔗 View place: {url}")
-        
-        # Unir toda la información del negocio
-        business_block = "\n".join(business_info)
-        lines.append(f"{idx}. {business_block}")
-    
+                block.append(f"🔗 Ver el lugar: {url}")
+
+        else:
+            if hours_info == "horario no disponible":
+                title = f"📍 {idx}) {name} ⚪ HOURS NOT AVAILABLE"
+            elif is_open:
+                title = f"📍 {idx}) {name} 🟢 OPEN"
+                if hours_info:
+                    title += f" ({hours_info})"
+            else:
+                title = f"📍 {idx}) {name} 🔴 CLOSED"
+                if hours_info:
+                    title += f" ({hours_info})"
+
+            block = [title]
+            block.append(f"🚚 Home delivery: {'Yes ✅' if has_delivery else 'No ❌'}")
+            block.append(f"💳 Cashback: {'Yes 💰' if cashback else 'No'}")
+
+            if distance:
+                block.append(f"📍 Distance: {distance}")
+
+            if url:
+                block.append(f"🔗 View: {url}")
+
+        lines.append("\n".join(block))
+
     return "\n\n".join(lines)
+
 
 def format_place_details(place: Dict[str, Any], language: str) -> str:
     """Detalles completos de un lugar con cashback y horarios"""
@@ -1589,30 +1573,38 @@ async def handle_text_message(wa_id: str, text: str, phone_number_id: str = None
         return
     
     # PASO 3: SELECCIÓN POR NÚMERO (1-5 o más)
-    if re.match(r'^\s*\d+\s*$', text) and session.get("last_results"):
-        try:
-            selected_number = int(text.strip())
-            results = session.get("last_results", [])
+if re.match(r'^\s*\d+\s*$', text) and session.get("last_results"):
+    try:
+        selected_number = int(text.strip())
+        results = session.get("last_results", [])
 
-            if 1 <= selected_number <= len(results):
-                selected_place = results[selected_number - 1]
-                details = format_place_details(selected_place, session["language"])
-                await send_whatsapp_message(wa_id, details, phone_number_id)
+        if 1 <= selected_number <= len(results):
+            selected_place = results[selected_number - 1]
 
-                image_url = selected_place.get("imagen_url")
-                if image_url:
-                    await send_whatsapp_image(wa_id, image_url, phone_number_id=phone_number_id)
+            details = format_place_details(selected_place, session["language"])
+            await send_whatsapp_message(wa_id, details, phone_number_id)
 
-                return
+            image_url = (
+                selected_place.get("imagen_url")
+                or selected_place.get("cover_image_url")
+                or selected_place.get("image_url")
+            )
+            if image_url:
+                await send_whatsapp_image(wa_id, image_url, phone_number_id=phone_number_id)
+
+            return
+        else:
+            if session["language"] == "es":
+                response = f"Elige un número del 1 al {len(results)}, porfa 😊"
             else:
-                if session["language"] == "es":
-                    response = f"Elige un número del 1 al {len(results)}, porfa 😊"
-                else:
-                    response = f"Pick a number from 1 to {len(results)}, please 😊"
-                await send_whatsapp_message(wa_id, response)
-                return
-        except ValueError:
-            pass
+                response = f"Pick a number from 1 to {len(results)}, please 😊"
+
+            await send_whatsapp_message(wa_id, response, phone_number_id)
+            return
+
+    except ValueError:
+        pass
+
 
     
     # ESCENARIOS 2 y 3: Hay craving con saludo
