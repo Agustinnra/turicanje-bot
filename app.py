@@ -1573,38 +1573,30 @@ async def handle_text_message(wa_id: str, text: str, phone_number_id: str = None
         return
     
     # PASO 3: SELECCIÓN POR NÚMERO (1-5 o más)
-if re.match(r'^\s*\d+\s*$', text) and session.get("last_results"):
-    try:
-        selected_number = int(text.strip())
-        results = session.get("last_results", [])
+    if re.match(r'^\s*\d+\s*$', text) and session.get("last_results"):
+        try:
+            selected_number = int(text.strip())
+            results = session.get("last_results", [])
 
-        if 1 <= selected_number <= len(results):
-            selected_place = results[selected_number - 1]
+            if 1 <= selected_number <= len(results):
+                selected_place = results[selected_number - 1]
+                details = format_place_details(selected_place, session["language"])
+                await send_whatsapp_message(wa_id, details, phone_number_id)
 
-            details = format_place_details(selected_place, session["language"])
-            await send_whatsapp_message(wa_id, details, phone_number_id)
+                image_url = selected_place.get("imagen_url")
+                if image_url:
+                    await send_whatsapp_image(wa_id, image_url, phone_number_id=phone_number_id)
 
-            image_url = (
-                selected_place.get("imagen_url")
-                or selected_place.get("cover_image_url")
-                or selected_place.get("image_url")
-            )
-            if image_url:
-                await send_whatsapp_image(wa_id, image_url, phone_number_id=phone_number_id)
-
-            return
-        else:
-            if session["language"] == "es":
-                response = f"Elige un número del 1 al {len(results)}, porfa 😊"
+                return
             else:
-                response = f"Pick a number from 1 to {len(results)}, please 😊"
-
-            await send_whatsapp_message(wa_id, response, phone_number_id)
-            return
-
-    except ValueError:
-        pass
-
+                if session["language"] == "es":
+                    response = f"Elige un número del 1 al {len(results)}, porfa 😊"
+                else:
+                    response = f"Pick a number from 1 to {len(results)}, please 😊"
+                await send_whatsapp_message(wa_id, response)
+                return
+        except ValueError:
+            pass
 
     
     # ESCENARIOS 2 y 3: Hay craving con saludo
