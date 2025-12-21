@@ -7,7 +7,8 @@ import random
 import time
 import math
 from typing import Dict, Optional, Any, List
-from datetime import datetime
+from datetime import datetime, time as dt_time
+
 
 import pytz
 from fastapi import FastAPI, Request, HTTPException
@@ -148,7 +149,8 @@ def is_place_open(hours: dict) -> tuple[bool, str]:
     Retorna: (está_abierto, próximo_horario)
     """
     if not hours:
-        return (True, "")
+        return (False, "horario no disponible")
+
     
     try:
         now = local_now()
@@ -179,8 +181,9 @@ def is_place_open(hours: dict) -> tuple[bool, str]:
                         open_parts = open_str.split(":")
                         close_parts = close_str.split(":")
                         
-                        open_time = time(int(open_parts[0]), int(open_parts[1]))
-                        close_time = time(int(close_parts[0]), int(close_parts[1]))
+                        open_time = dt_time(int(open_parts[0]), int(open_parts[1]))
+                        close_time = dt_time(int(close_parts[0]), int(close_parts[1]))
+
                         
                         print(f"[HOURS-CHECK] Verificando intervalo: {open_str}-{close_str}")
                         
@@ -213,7 +216,7 @@ def is_place_open(hours: dict) -> tuple[bool, str]:
                     open_str = schedule[0]
                     try:
                         open_parts = open_str.split(":")
-                        open_time = time(int(open_parts[0]), int(open_parts[1]))
+                        open_time = dt_time(int(open_parts[0]), int(open_parts[1]))
                         
                         if open_time > current_time_obj:
                             return (False, f"abre a las {open_str}")
@@ -943,16 +946,16 @@ def format_results_list(results: List[Dict[str, Any]], language: str) -> str:
         # Verificar si está abierto
         is_open, hours_info = is_place_open(hours)
         
-        if language == "es":
-            # Título del negocio con estado
-            if is_open:
-                business_info = [f"📍 {name} 🟢 ABIERTO"]
-                if hours_info:
-                    business_info[0] += f" ({hours_info})"
-            else:
-                business_info = [f"📍 {name} 🔴 CERRADO"]
-                if hours_info:
-                    business_info[0] += f" ({hours_info})"
+        if hours_info == "horario no disponible":
+            business_info = [f"📍 {name} ⚪ HORARIO NO DISPONIBLE"]
+        elif is_open:
+            business_info = [f"📍 {name} 🟢 ABIERTO"]
+            if hours_info:
+                business_info[0] += f" ({hours_info})"
+        else:
+            business_info = [f"📍 {name} 🔴 CERRADO"]
+            if hours_info:
+                business_info[0] += f" ({hours_info})"
             
             # Servicio a domicilio
             delivery_text = "Sí ✅" if has_delivery else "No ❌"
@@ -972,14 +975,20 @@ def format_results_list(results: List[Dict[str, Any]], language: str) -> str:
             
         else:
             # Título del negocio con estado en inglés
-            if is_open:
-                business_info = [f"📍 {name} 🟢 OPEN"]
-                if hours_info:
-                    business_info[0] += f" ({hours_info})"
-            else:
-                business_info = [f"📍 {name} 🔴 CLOSED"]
-                if hours_info:
-                    business_info[0] += f" ({hours_info})"
+            # Check if open
+        is_open, hours_info = is_place_open(hours)
+
+        if hours_info == "horario no disponible":
+            business_info = [f"📍 {name} ⚪ HOURS NOT AVAILABLE"]
+        elif is_open:
+            business_info = [f"📍 {name} 🟢 OPEN"]
+            if hours_info:
+                business_info[0] += f" ({hours_info})"
+        else:
+            business_info = [f"📍 {name} 🔴 CLOSED"]
+            if hours_info:
+                business_info[0] += f" ({hours_info})"
+
             
             # Servicio a domicilio
             delivery_text = "Yes ✅" if has_delivery else "No ❌"
@@ -1588,11 +1597,12 @@ async def handle_text_message(wa_id: str, text: str, phone_number_id: str = None
             if 1 <= selected_number <= len(results):
                 selected_place = results[selected_number - 1]
                 details = format_place_details(selected_place, session["language"])
-                await send_whatsapp_message(wa_id, details)
+                await send_whatsapp_message(wa_id, details, phone_number_id)
 
                 image_url = selected_place.get("imagen_url")
                 if image_url:
-                    await send_whatsapp_image(wa_id, image_url)
+                    await send_whatsapp_image(wa_id, image_url, phone_number_id=phone_number_id)
+
                 return
             else:
                 if session["language"] == "es":
