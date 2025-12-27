@@ -18,6 +18,51 @@ import psycopg
 from psycopg_pool import ConnectionPool
 from dotenv import load_dotenv
 
+from datetime import datetime
+import pytz
+
+DAY_MAP = {
+    0: ("mon_open", "mon_close"),
+    1: ("tue_open", "tue_close"),
+    2: ("wed_open", "wed_close"),
+    3: ("thu_open", "thu_close"),
+    4: ("fri_open", "fri_close"),
+    5: ("sat_open", "sat_close"),
+    6: ("sun_open", "sun_close"),
+}
+
+def is_open_now_by_day(place: dict) -> bool:
+    tz_name = place.get("timezone") or "America/Mexico_City"
+    try:
+        tz = pytz.timezone(tz_name)
+    except Exception:
+        tz = pytz.timezone("America/Mexico_City")
+
+    now = datetime.now(tz)
+    weekday = now.weekday()
+
+    open_key, close_key = DAY_MAP[weekday]
+    open_time = place.get(open_key)
+    close_time = place.get(close_key)
+
+    if not open_time or not close_time:
+        return False
+
+    try:
+        open_dt = tz.localize(
+            datetime.combine(now.date(), datetime.strptime(open_time, "%H:%M").time())
+        )
+        close_dt = tz.localize(
+            datetime.combine(now.date(), datetime.strptime(close_time, "%H:%M").time())
+        )
+
+        if close_dt <= open_dt:
+            close_dt = close_dt.replace(day=close_dt.day + 1)
+
+        return open_dt <= now <= close_dt
+    except Exception:
+        return False
+
 # ================= ENV =================
 load_dotenv()
 
@@ -138,6 +183,65 @@ def format_distance(meters: float) -> str:
         return f"{int(meters)} m"
     else:
         return f"{meters/1000:.1f} km"
+
+from datetime import datetime
+import pytz
+
+def compute_open_status(place: dict) -> dict:
+    """
+    Calcula si un lugar está abierto ahora, usando mon_open, mon_close, etc.
+    Retorna flags que el bot puede usar para ranking y respuestas.
+    """
+
+    tz_name = place.get("timezone") or "America/Mexico_City"
+    tz = pytz.timezone(tz_name)
+    now = datetime.now(tz)
+
+    weekday = now.weekday()  # 0=mon ... 6=sun
+    day_map = {
+        0: "mon",
+        1: "tue",
+        2: "wed",
+        3: "thu",
+        4: "fri",
+        5: "sat",
+        6: "sun",
+    }
+
+    day = day_map[weekday]
+    open_key = f"{day}_open"
+    close_key = f"{day}_close"
+
+    open_time = place.get(open_key)
+    close_time = place.get(close_key)
+
+    if not open_time or not close_time:
+        return {
+            "is_open_now": False,
+            "has_today_hours": False,
+            "today_open": None,
+            "today_close": None,
+        }
+
+    try:
+        open_dt = tz.localize(datetime.combine(now.date(), datetime.strptime(open_time, "%H:%M:%S").time()))
+        close_dt = tz.localize(datetime.combine(now.date(), datetime.strptime(close_time, "%H:%M:%S").time()))
+    except Exception:
+        return {
+            "is_open_now": False,
+            "has_today_hours": False,
+            "today_open": open_time,
+            "today_close": close_time,
+        }
+
+    is_open = open_dt <= now <= close_dt
+
+    return {
+        "is_open_now": is_open,
+        "has_today_hours": True,
+        "today_open": open_time,
+        "today_close": close_time,
+    }
 
 
 # Agregar estas funciones a tu app.py después de la función format_distance
@@ -713,7 +817,8 @@ def search_places_without_location(craving: str, limit: int = 10) -> List[Dict[s
             for row in rows:
                 place = dict(row)
                 place["products"] = list(place.get("products") or [])
-                place["hours"] = dict(place.get("hours") or {})
+                place["is_open_now"] = is_open_now_by_day(place)
+
                 results.append(place)
             
             print(f"[DB-SEARCH] Sin ubicación: {len(results)} resultados")
@@ -768,7 +873,8 @@ async def search_places_without_location_ai(craving: str, language: str, wa_id: 
             for row in rows:
                 place = dict(row)
                 place["products"] = list(place.get("products") or [])
-                place["hours"] = dict(place.get("hours") or {})
+                place["is_open_now"] = is_open_now_by_day(place)
+
                 results.append(place)
             
             print(f"[DB-SEARCH] Con IA sin ubicación: {len(results)} resultados")
@@ -835,7 +941,8 @@ def search_places_with_location(craving: str, user_lat: float, user_lng: float, 
             for row in rows:
                 place = dict(row)
                 place["products"] = list(place.get("products") or [])
-                place["hours"] = dict(place.get("hours") or {})
+                place["is_open_now"] = is_open_now_by_day(place)
+
                 
                 if place.get("distance_meters") and place["distance_meters"] < 999999:
                     place["distance_text"] = format_distance(place["distance_meters"])
@@ -911,7 +1018,8 @@ async def search_places_with_location_ai(craving: str, user_lat: float, user_lng
             for row in rows:
                 place = dict(row)
                 place["products"] = list(place.get("products") or [])
-                place["hours"] = dict(place.get("hours") or {})
+                place["is_open_now"] = is_open_now_by_day(place)
+
                 
                 if place.get("distance_meters") and place["distance_meters"] < 999999:
                     place["distance_text"] = format_distance(place["distance_meters"])
