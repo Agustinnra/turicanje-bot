@@ -372,17 +372,22 @@ NOMBRES_ENGLISH = [
     "Gianna", "Michael", "Abigail", "Ethan", "Luna", "Daniel", "Ella"
 ]
 
-def get_random_name(language: str) -> str:
-    names = NOMBRES_SPANISH if language == "es" else NOMBRES_ENGLISH
-    return random.choice(names)
+def get_random_name() -> str:
+    """Siempre retorna un nombre en español"""
+    return random.choice(NOMBRES_SPANISH)
 
 # ================= DETECCIÓN DE IDIOMA =================
-def detect_language_simple(text: str) -> str:
+def is_spanish(text: str) -> bool:
+    """
+    Detecta si el texto está en español.
+    Retorna True si es español, False si no lo es.
+    """
     if not text:
-        return "en"
+        return True  # Por defecto asumimos español
     
     text_lower = text.lower().strip()
     
+    # Palabras comunes en español
     spanish_words = [
         'hola', 'buenos', 'buenas', 'saludos', 'gracias', 'por', 'favor',
         'qué', 'que', 'cómo', 'como', 'dónde', 'donde', 'cuándo', 'cuando',
@@ -394,32 +399,35 @@ def detect_language_simple(text: str) -> str:
         'me', 'te', 'se', 'le', 'nos', 'les', 'del', 'de', 'la', 'el', 'un', 'una'
     ]
     
+    # Palabras comunes en inglés (para detectar cuando NO es español)
     english_words = [
         'hello', 'hi', 'hey', 'good', 'morning', 'afternoon', 'evening',
         'thanks', 'thank', 'you', 'please', 'what', 'how', 'where',
         'when', 'who', 'which', 'craving', 'hungry', 'food', 'eat',
         'restaurant', 'place', 'near', 'here', 'delivery', 'order', 'yes',
-        'coffee', 'pizza', 'tacos'
+        'the', 'a', 'an', 'this', 'that', 'my', 'your', 'want', 'need'
     ]
     
+    # Caracteres específicos del español
     has_spanish_chars = bool(re.search(r'[ñáéíóúüÀ-ÿ¡¿]', text))
     
+    # Si tiene caracteres españoles, definitivamente es español
+    if has_spanish_chars:
+        return True
+    
+    # Contar palabras en cada idioma
     words = re.findall(r'\b\w+\b', text_lower)
     spanish_score = sum(1 for word in words if word in spanish_words)
     english_score = sum(1 for word in words if word in english_words)
     
     print(f"[LANG-DETECT] '{text}' -> ES:{spanish_score}, EN:{english_score}, chars:{has_spanish_chars}")
     
-    if has_spanish_chars:
-        return "es"
+    # Si tiene más palabras en inglés que en español, probablemente NO es español
+    if english_score > spanish_score and english_score > 0:
+        return False
     
-    if spanish_score >= english_score and spanish_score > 0:
-        return "es"
-    
-    if english_score > spanish_score:
-        return "en"
-    
-    return "en"
+    # En caso de duda o empate, asumimos que es español
+    return True
 
 def is_greeting(text: str) -> bool:
     if not text:
@@ -530,7 +538,8 @@ def reset_user_session(wa_id: str):
         del user_sessions[wa_id]
     print(f"[SESSION] Reset completo para usuario {wa_id}")
 
-def get_or_create_user_session(wa_id: str, detected_lang: str) -> Dict[str, Any]:
+def get_or_create_user_session(wa_id: str) -> Dict[str, Any]:
+    """Crea o recupera sesión de usuario. Siempre usa español."""
     current_time = time.time()
     
     if wa_id in user_sessions:
@@ -544,10 +553,10 @@ def get_or_create_user_session(wa_id: str, detected_lang: str) -> Dict[str, Any]
             print(f"[SESSION] Sesión expirada para {wa_id} ({time_diff:.1f}s)")
             reset_user_session(wa_id)
     
-    name = get_random_name(detected_lang)
+    name = get_random_name()  # ✅ Siempre usa nombres en español
     session = {
         "name": name,
-        "language": detected_lang,
+        "language": "es",  # ✅ SIEMPRE ESPAÑOL
         "last_seen": current_time,
         "is_new": True,
         "last_search": {},
@@ -555,7 +564,7 @@ def get_or_create_user_session(wa_id: str, detected_lang: str) -> Dict[str, Any]
         "user_location": None
     }
     user_sessions[wa_id] = session
-    print(f"[SESSION] Nueva sesión: {wa_id} -> {name} ({detected_lang})")
+    print(f"[SESSION] Nueva sesión: {wa_id} -> {name} (es)")
     return session
 
 # ================= IA: EXTRACCIÓN DE INTENCIÓN =================
@@ -1630,8 +1639,15 @@ async def handle_text_message(wa_id: str, text: str, phone_number_id: str = None
     config = get_environment_config(phone_number_id) if phone_number_id else {"prefix": ""}
     print(f"{config.get('prefix', '')} [TEXT] {wa_id}: {text}")
     
-    detected_language = detect_language_simple(text)
-    session = get_or_create_user_session(wa_id, detected_language)
+    # ✅ Detectar si el mensaje NO está en español
+    if not is_spanish(text):
+        print(f"[LANG-DETECT] Mensaje no está en español, invitando a escribir en español")
+        spanish_invitation = "Hola! 👋 Por favor escribe en español para poder ayudarte mejor. ¡Gracias! 😊"
+        await send_whatsapp_message(wa_id, spanish_invitation, phone_number_id)
+        return
+    
+    # ✅ Si está en español, continuar normalmente (siempre con idioma "es")
+    session = get_or_create_user_session(wa_id)
     
     intent_data = await extract_intent_with_ai(text, session["language"], session["name"], wa_id)
     intent = intent_data.get("intent", "other")
