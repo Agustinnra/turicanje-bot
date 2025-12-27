@@ -763,6 +763,7 @@ def search_place_by_name(business_name: str) -> Optional[Dict[str, Any]]:
             
             if row:
                 place = dict(row)
+                place["delivery"] = bool(place.get("delivery"))
                 place["products"] = list(place.get("products") or [])
                 place["hours"] = dict(place.get("hours") or {})
                 print(f"[DB-SEARCH-NAME] Encontrado: {place['name']}")
@@ -816,6 +817,7 @@ def search_places_without_location(craving: str, limit: int = 10) -> List[Dict[s
             results = []
             for row in rows:
                 place = dict(row)
+                place["delivery"] = bool(place.get("delivery"))
                 place["products"] = list(place.get("products") or [])
                 place["is_open_now"] = is_open_now_by_day(place)
 
@@ -872,6 +874,7 @@ async def search_places_without_location_ai(craving: str, language: str, wa_id: 
             results = []
             for row in rows:
                 place = dict(row)
+                place["delivery"] = bool(place.get("delivery"))
                 place["products"] = list(place.get("products") or [])
                 place["is_open_now"] = is_open_now_by_day(place)
 
@@ -940,6 +943,7 @@ def search_places_with_location(craving: str, user_lat: float, user_lng: float, 
             results = []
             for row in rows:
                 place = dict(row)
+                place["delivery"] = bool(place.get("delivery"))
                 place["products"] = list(place.get("products") or [])
                 place["is_open_now"] = is_open_now_by_day(place)
 
@@ -1017,6 +1021,7 @@ async def search_places_with_location_ai(craving: str, user_lat: float, user_lng
             results = []
             for row in rows:
                 place = dict(row)
+                place["delivery"] = bool(place.get("delivery"))
                 place["products"] = list(place.get("products") or [])
                 place["is_open_now"] = is_open_now_by_day(place)
 
@@ -1050,7 +1055,7 @@ def format_results_list(results: List[Dict[str, Any]], language: str) -> str:
         hours = place.get("hours") or {}
 
         # Servicio a domicilio: lo inferimos por url_order
-        has_delivery = bool(place.get("url_order"))
+        has_delivery = bool(place.get("delivery"))
 
         # Abierto / cerrado (usa tu función existente)
         is_open, hours_info = is_place_open(hours)
@@ -1335,7 +1340,7 @@ async def debug_cashback_database():
     """Debug endpoint para verificar valores de cashback en la BD"""
     try:
         sql = """
-        SELECT id, name, cashback, afiliado, products
+        SELECT id, name, cashback, afiliado, products, delivery
         FROM public.places 
         WHERE products::text ILIKE '%jugo%'
         ORDER BY name
@@ -1349,6 +1354,7 @@ async def debug_cashback_database():
             results = []
             for row in rows:
                 place = dict(row)
+                place["delivery"] = bool(place.get("delivery"))
                 place["products"] = list(place.get("products") or [])
                 results.append({
                     "id": place["id"],
@@ -1373,7 +1379,7 @@ async def debug_verify_place(place_name: str):
     """Verificar un lugar específico por nombre"""
     try:
         sql = """
-        SELECT id, name, cashback, afiliado, products
+        SELECT id, name, cashback, afiliado, products, delivery
         FROM public.places 
         WHERE LOWER(name) LIKE %s
         ORDER BY name
@@ -1392,6 +1398,7 @@ async def debug_verify_place(place_name: str):
             results = []
             for row in rows:
                 place = dict(row)
+                place["delivery"] = bool(place.get("delivery"))
                 place["products"] = list(place.get("products") or [])
                 results.append({
                     "id": place["id"],
