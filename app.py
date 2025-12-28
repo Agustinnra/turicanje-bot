@@ -40,6 +40,9 @@ def is_open_now_by_day(place: dict) -> bool:
     - Zona horaria del lugar
     - Verifica el día anterior si son horas muy tempranas (antes de las 6 AM)
     """
+    place_name = place.get('name', 'UNKNOWN')
+    place_id = place.get('id', 'UNKNOWN')
+    
     tz_name = place.get("timezone") or "America/Mexico_City"
     try:
         tz = pytz.timezone(tz_name)
@@ -48,6 +51,9 @@ def is_open_now_by_day(place: dict) -> bool:
 
     now = datetime.now(tz)
     weekday = now.weekday()
+    
+    # DEBUG: Log de entrada
+    print(f"[OPEN-CHECK-DEBUG] Verificando {place_id} - {place_name}")
 
     def parse_time(time_str):
         """Helper para parsear tiempos en múltiples formatos"""
@@ -64,8 +70,12 @@ def is_open_now_by_day(place: dict) -> bool:
         open_key, close_key = DAY_MAP[day_index]
         open_time = place.get(open_key)
         close_time = place.get(close_key)
+        
+        # DEBUG: Log de horarios
+        print(f"[OPEN-CHECK-DEBUG] {place_name} - {open_key}={open_time}, {close_key}={close_time}")
 
         if not open_time or not close_time:
+            print(f"[OPEN-CHECK-DEBUG] {place_name} - Sin horarios para {open_key}/{close_key}")
             return False
 
         try:
@@ -79,13 +89,16 @@ def is_open_now_by_day(place: dict) -> bool:
             if close_dt <= open_dt:
                 close_dt = close_dt.replace(day=close_dt.day + 1)
 
-            return open_dt <= now <= close_dt
-        except Exception:
+            is_open = open_dt <= now <= close_dt
+            print(f"[OPEN-CHECK-DEBUG] {place_name} - is_open={is_open}, now={now.time()}, open={open_t}, close={close_t}")
+            return is_open
+        except Exception as e:
+            print(f"[OPEN-CHECK-DEBUG] {place_name} - ERROR: {e}")
             return False
 
     # Verificar día actual
     if check_day(weekday):
-        print(f"[OPEN-CHECK] ✅ {place.get('name')} ABIERTO (día actual)")
+        print(f"[OPEN-CHECK] ✅ {place_name} ABIERTO (día actual)")
         return True
 
     # Si son horas muy tempranas (antes de las 6 AM), verificar día anterior
@@ -93,9 +106,10 @@ def is_open_now_by_day(place: dict) -> bool:
     if now.hour < 6:
         prev_day = (weekday - 1) % 7
         if check_day(prev_day):
-            print(f"[OPEN-CHECK] ✅ {place.get('name')} ABIERTO (horario del día anterior que cruza medianoche)")
+            print(f"[OPEN-CHECK] ✅ {place_name} ABIERTO (horario del día anterior que cruza medianoche)")
             return True
 
+    print(f"[OPEN-CHECK] ❌ {place_name} CERRADO")
     return False
 
 def get_hours_status_from_columns(place: dict) -> tuple[bool, str, bool]:
@@ -2041,7 +2055,16 @@ _SHEET_ALLOWED = set([
 ])
 
 _DAYS = ["mon","tue","wed","thu","fri","sat","sun"]
+
+# ✅ NUEVO: Aceptar AMBOS formatos de horarios
+# Formato 1: mon_open, mon_close (Google Sheets actual)
+# Formato 2: mon_1_open, mon_1_close, mon_2_open, mon_2_close (futuro)
 for d in _DAYS:
+    # Formato simple (compatibilidad con Sheets actuales)
+    _SHEET_ALLOWED.add(f"{d}_open")
+    _SHEET_ALLOWED.add(f"{d}_close")
+    
+    # Formato con intervalos (para múltiples horarios por día)
     _SHEET_ALLOWED.update([f"{d}_1_open", f"{d}_1_close", f"{d}_2_open", f"{d}_2_close"])
 
 # === helpers de tipos ===
@@ -2134,6 +2157,45 @@ def _norm_time(s):
     except (ValueError, IndexError):
         return None
 
+def _normalize_hours_from_sheet(row):
+    """
+    Normaliza horarios desde Google Sheets a formato de columnas individuales de PostgreSQL.
+    
+    Maneja DOS formatos:
+    1. SIMPLE: mon_open, mon_close (actual en Google Sheets)
+    2. INTERVALOS: mon_1_open, mon_1_close, mon_2_open, mon_2_close (futuro)
+    
+    Returns:
+        dict con claves: mon_open, mon_close, tue_open, ..., sun_close
+    """
+    result = {}
+    
+    for d in ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun']:
+        open_key = f"{d}_open"
+        close_key = f"{d}_close"
+        
+        # PRIORIDAD 1: Formato simple (mon_open, mon_close)
+        simple_open = row.get(open_key)
+        simple_close = row.get(close_key)
+        
+        # PRIORIDAD 2: Formato con intervalos (mon_1_open, mon_1_close)
+        interval_open = row.get(f"{d}_1_open")
+        interval_close = row.get(f"{d}_1_close")
+        
+        # Usar el que esté disponible (prioridad al formato simple)
+        final_open = simple_open if simple_open is not None else interval_open
+        final_close = simple_close if simple_close is not None else interval_close
+        
+        # Solo agregar si ambos existen
+        if final_open is not None and final_close is not None:
+            result[open_key] = _norm_time(final_open)
+            result[close_key] = _norm_time(final_close)
+            
+            if result[open_key] and result[close_key]:
+                print(f"[SHEET-NORMALIZE] {open_key}={result[open_key]}, {close_key}={result[close_key]}")
+    
+    return result
+
 def _extract_hours(row):
     """
     Lee horarios desde Google Sheet y los normaliza correctamente.
@@ -2183,8 +2245,12 @@ def _ss_map_to_places(row):
     products = (products_es or []) + (products_en or [])
     products = [p.lower() for p in products] if products else None
 
-    # horarios
+    # ✅ NUEVO: Horarios en AMBOS formatos
+    # 1. JSON hours (para compatibilidad con código viejo)
     hours = _extract_hours(row)
+    
+    # 2. Columnas individuales (mon_open, tue_open, etc.) - USADO POR EL BOT
+    normalized_hours = _normalize_hours_from_sheet(row)
 
     # Procesar valores booleanos con debug mejorado
     cashback_raw = row.get("cashback")
@@ -2201,9 +2267,11 @@ def _ss_map_to_places(row):
     print(f"[DEBUG-MAPPING] affiliate RAW: '{affiliate_raw}' (tipo: {type(affiliate_raw).__name__})")
     print(f"[DEBUG-MAPPING] affiliate BOOL: {affiliate_bool} (tipo: {type(affiliate_bool).__name__})")
     print(f"[DEBUG-MAPPING] Products: {products[:3] if products else 'None'}...")
+    print(f"[DEBUG-MAPPING] Normalized hours: {list(normalized_hours.keys())}")
     print(f"[DEBUG-MAPPING] ================================")
 
-    return {
+    # ✅ Construir diccionario con TODAS las columnas
+    result = {
         "id": row.get("id"),
         "name": name,
         "category": row.get("category") or None,
@@ -2212,11 +2280,16 @@ def _ss_map_to_places(row):
         "cashback": cashback_bool,
         "address": row.get("address") or None,
         "lat": _ss_to_float(row.get("lat")),
-        "lng": _ss_to_float(row.get("lon")),
+        "lng": _ss_to_float(row.get("lon")),  # ✅ FIX: lon → lng
         "afiliado": affiliate_bool,
         "imagen_url": (row.get("cover_image_url") or None),
         "hours": json.dumps(hours) if hours is not None else None,
     }
+    
+    # ✅ Agregar columnas individuales de horarios
+    result.update(normalized_hours)
+    
+    return result
 
 # === COALESCE por tipo: evita pisar con NULL/"" y mantiene fotos de la BD si Sheet viene vacío ===
 def _ss_coalesce_expr(col: str) -> str:
@@ -2230,6 +2303,13 @@ def _ss_coalesce_expr(col: str) -> str:
         return f"%({col})s::boolean"
     if col in ("products","hours"):
         return f"COALESCE(%({col})s::jsonb, {col})"
+    
+    # ✅ NUEVO: Columnas de horarios (mon_open, tue_open, etc.)
+    if col.endswith("_open") or col.endswith("_close"):
+        # Si viene NULL desde el Sheet, mantener el valor de la BD
+        # Si viene un valor, actualizarlo
+        return f"COALESCE(%({col})s::text, {col})"
+    
     # texto: no pisar con "" -> NULLIF(...,'')
     return f"COALESCE(NULLIF(%({col})s::text, ''), {col})"
 
