@@ -38,6 +38,7 @@ def is_open_now_by_day(place: dict) -> bool:
     - Formatos: "HH:MM:SS", "HH:MM", "H:MM:SS", "H:MM"
     - Horarios que cruzan medianoche (ej: 22:00 - 02:00)
     - Zona horaria del lugar
+    - Verifica el día anterior si son horas muy tempranas (antes de las 6 AM)
     """
     tz_name = place.get("timezone") or "America/Mexico_City"
     try:
@@ -48,47 +49,137 @@ def is_open_now_by_day(place: dict) -> bool:
     now = datetime.now(tz)
     weekday = now.weekday()
 
-    open_key, close_key = DAY_MAP[weekday]
-    open_time = place.get(open_key)
-    close_time = place.get(close_key)
+    def parse_time(time_str):
+        """Helper para parsear tiempos en múltiples formatos"""
+        time_str = str(time_str).strip()
+        for fmt in ["%H:%M:%S", "%H:%M"]:
+            try:
+                return datetime.strptime(time_str, fmt).time()
+            except ValueError:
+                continue
+        raise ValueError(f"No se pudo parsear: {time_str}")
 
-    if not open_time or not close_time:
-        return False
+    def check_day(day_index):
+        """Verifica si está abierto en un día específico"""
+        open_key, close_key = DAY_MAP[day_index]
+        open_time = place.get(open_key)
+        close_time = place.get(close_key)
 
+        if not open_time or not close_time:
+            return False
+
+        try:
+            open_t = parse_time(open_time)
+            close_t = parse_time(close_time)
+            
+            open_dt = tz.localize(datetime.combine(now.date(), open_t))
+            close_dt = tz.localize(datetime.combine(now.date(), close_t))
+
+            # Si cierra "antes" de abrir, cruza medianoche
+            if close_dt <= open_dt:
+                close_dt = close_dt.replace(day=close_dt.day + 1)
+
+            return open_dt <= now <= close_dt
+        except Exception:
+            return False
+
+    # Verificar día actual
+    if check_day(weekday):
+        print(f"[OPEN-CHECK] ✅ {place.get('name')} ABIERTO (día actual)")
+        return True
+
+    # Si son horas muy tempranas (antes de las 6 AM), verificar día anterior
+    # Esto cubre el caso: Sábado 22:00 - Domingo 3:00
+    if now.hour < 6:
+        prev_day = (weekday - 1) % 7
+        if check_day(prev_day):
+            print(f"[OPEN-CHECK] ✅ {place.get('name')} ABIERTO (horario del día anterior que cruza medianoche)")
+            return True
+
+    return False
+
+def get_hours_status_from_columns(place: dict) -> tuple[bool, str, bool]:
+    """
+    Calcula el estado de horarios usando las columnas individuales (mon_open, tue_open, etc.)
+    
+    Maneja:
+    - Horarios normales
+    - Horarios que cruzan medianoche (ej: 22:00 - 02:00)
+    - Verifica día anterior si son horas tempranas (antes de 6 AM)
+    
+    Returns:
+        tuple[bool, str, bool]: (is_open, hours_text, has_hours)
+        - is_open: True si está abierto ahora
+        - hours_text: Texto descriptivo ("hasta 22:00", "abre a las 09:00", etc.)
+        - has_hours: True si tiene información de horarios en la BD
+    """
+    tz_name = place.get("timezone") or "America/Mexico_City"
     try:
-        # Parsear tiempos - soporta HH:MM:SS y HH:MM
-        def parse_time(time_str):
-            time_str = str(time_str).strip()
-            # Intentar con segundos primero
-            for fmt in ["%H:%M:%S", "%H:%M"]:
-                try:
-                    return datetime.strptime(time_str, fmt).time()
-                except ValueError:
-                    continue
-            raise ValueError(f"No se pudo parsear tiempo: {time_str}")
-        
-        open_t = parse_time(open_time)
-        close_t = parse_time(close_time)
-        
-        open_dt = tz.localize(datetime.combine(now.date(), open_t))
-        close_dt = tz.localize(datetime.combine(now.date(), close_t))
+        tz = pytz.timezone(tz_name)
+    except Exception:
+        tz = pytz.timezone("America/Mexico_City")
 
-        # Si cierra "antes" de abrir, significa que cruza medianoche
-        if close_dt <= open_dt:
-            close_dt = close_dt.replace(day=close_dt.day + 1)
+    now = datetime.now(tz)
+    weekday = now.weekday()
 
-        is_open = open_dt <= now <= close_dt
-        
-        # Debug log
-        if is_open:
-            print(f"[OPEN-CHECK] ✅ {place.get('name')} ABIERTO - {open_time} a {close_time}")
-        
-        return is_open
-        
-    except Exception as e:
-        print(f"[OPEN-CHECK] ⚠️ Error parseando horarios para {place.get('name')}: {e}")
-        print(f"[OPEN-CHECK]    open_time={open_time}, close_time={close_time}")
-        return False
+    def parse_time(time_str):
+        """Helper para parsear tiempos"""
+        time_str = str(time_str).strip()
+        for fmt in ["%H:%M:%S", "%H:%M"]:
+            try:
+                return datetime.strptime(time_str, fmt).time()
+            except ValueError:
+                continue
+        raise ValueError(f"No se pudo parsear: {time_str}")
+
+    def check_day_status(day_index):
+        """Verifica el estado de un día específico"""
+        open_key, close_key = DAY_MAP[day_index]
+        open_time = place.get(open_key)
+        close_time = place.get(close_key)
+
+        if not open_time or not close_time:
+            return (False, "", False)
+
+        try:
+            open_t = parse_time(open_time)
+            close_t = parse_time(close_time)
+            
+            open_dt = tz.localize(datetime.combine(now.date(), open_t))
+            close_dt = tz.localize(datetime.combine(now.date(), close_t))
+
+            # Manejar horarios que cruzan medianoche
+            if close_dt <= open_dt:
+                close_dt = close_dt.replace(day=close_dt.day + 1)
+
+            is_open = open_dt <= now <= close_dt
+            
+            close_formatted = close_t.strftime("%H:%M")
+            open_formatted = open_t.strftime("%H:%M")
+            
+            if is_open:
+                return (True, f"hasta {close_formatted}", True)
+            else:
+                return (False, f"abre a las {open_formatted}", True)
+            
+        except Exception:
+            return (False, "", False)
+
+    # 1. Verificar día actual
+    is_open, hours_text, has_hours = check_day_status(weekday)
+    if is_open:
+        return (True, hours_text, has_hours)
+
+    # 2. Si son horas muy tempranas (antes de 6 AM), verificar día anterior
+    # Esto cubre: Sábado 22:00 - Domingo 3:00 AM
+    if now.hour < 6:
+        prev_day = (weekday - 1) % 7
+        prev_is_open, prev_hours_text, prev_has_hours = check_day_status(prev_day)
+        if prev_is_open:
+            return (True, prev_hours_text, prev_has_hours)
+
+    # 3. Si no está abierto, retornar info del día actual
+    return (False, hours_text if has_hours else "", has_hours)
 
 # ================= ENV =================
 load_dotenv()
@@ -1098,16 +1189,16 @@ def format_results_list(results: List[Dict[str, Any]], language: str) -> str:
         distance = place.get("distance_text", "") or ""
         url = place.get("url_order") or place.get("url_extra") or ""
         cashback = bool(place.get("cashback", False))
-        hours = place.get("hours") or {}
 
-        # Servicio a domicilio: lo inferimos por url_order
+        # Servicio a domicilio
         has_delivery = bool(place.get("delivery"))
 
-        # Abierto / cerrado (usa tu función existente)
-        is_open, hours_info = is_place_open(hours)
+        # ✅ NUEVO: Usar columnas individuales de horarios
+        is_open, hours_info, has_hours = get_hours_status_from_columns(place)
 
         if language == "es":
-            if hours_info == "horario no disponible":
+            # Determinar el título basado en el estado de horarios
+            if not has_hours:
                 title = f"📍 {idx}) {name} ⚪ HORARIO NO DISPONIBLE"
             elif is_open:
                 title = f"📍 {idx}) {name} 🟢 ABIERTO"
@@ -1129,7 +1220,8 @@ def format_results_list(results: List[Dict[str, Any]], language: str) -> str:
                 block.append(f"🔗 Ver el lugar: {url}")
 
         else:
-            if hours_info == "horario no disponible":
+            # English version
+            if not has_hours:
                 title = f"📍 {idx}) {name} ⚪ HOURS NOT AVAILABLE"
             elif is_open:
                 title = f"📍 {idx}) {name} 🟢 OPEN"
