@@ -32,6 +32,13 @@ DAY_MAP = {
 }
 
 def is_open_now_by_day(place: dict) -> bool:
+    """
+    Determina si un lugar está abierto AHORA usando las columnas individuales de horarios.
+    Soporta:
+    - Formatos: "HH:MM:SS", "HH:MM", "H:MM:SS", "H:MM"
+    - Horarios que cruzan medianoche (ej: 22:00 - 02:00)
+    - Zona horaria del lugar
+    """
     tz_name = place.get("timezone") or "America/Mexico_City"
     try:
         tz = pytz.timezone(tz_name)
@@ -49,18 +56,38 @@ def is_open_now_by_day(place: dict) -> bool:
         return False
 
     try:
-        open_dt = tz.localize(
-            datetime.combine(now.date(), datetime.strptime(open_time, "%H:%M").time())
-        )
-        close_dt = tz.localize(
-            datetime.combine(now.date(), datetime.strptime(close_time, "%H:%M").time())
-        )
+        # Parsear tiempos - soporta HH:MM:SS y HH:MM
+        def parse_time(time_str):
+            time_str = str(time_str).strip()
+            # Intentar con segundos primero
+            for fmt in ["%H:%M:%S", "%H:%M"]:
+                try:
+                    return datetime.strptime(time_str, fmt).time()
+                except ValueError:
+                    continue
+            raise ValueError(f"No se pudo parsear tiempo: {time_str}")
+        
+        open_t = parse_time(open_time)
+        close_t = parse_time(close_time)
+        
+        open_dt = tz.localize(datetime.combine(now.date(), open_t))
+        close_dt = tz.localize(datetime.combine(now.date(), close_t))
 
+        # Si cierra "antes" de abrir, significa que cruza medianoche
         if close_dt <= open_dt:
             close_dt = close_dt.replace(day=close_dt.day + 1)
 
-        return open_dt <= now <= close_dt
-    except Exception:
+        is_open = open_dt <= now <= close_dt
+        
+        # Debug log
+        if is_open:
+            print(f"[OPEN-CHECK] ✅ {place.get('name')} ABIERTO - {open_time} a {close_time}")
+        
+        return is_open
+        
+    except Exception as e:
+        print(f"[OPEN-CHECK] ⚠️ Error parseando horarios para {place.get('name')}: {e}")
+        print(f"[OPEN-CHECK]    open_time={open_time}, close_time={close_time}")
         return False
 
 # ================= ENV =================
@@ -747,7 +774,10 @@ def search_place_by_name(business_name: str) -> Optional[Dict[str, Any]]:
         sql = """
         SELECT id, name, category, products, priority, cashback, hours, 
                address, phone, url_order, imagen_url, url_extra, afiliado,
-               lat, lng
+               lat, lng, timezone,
+               mon_open, mon_close, tue_open, tue_close, wed_open, wed_close,
+               thu_open, thu_close, fri_open, fri_close, sat_open, sat_close,
+               sun_open, sun_close
         FROM public.places 
         WHERE LOWER(name) LIKE %(search_pattern)s
         ORDER BY 
@@ -793,7 +823,10 @@ def search_places_without_location(craving: str, limit: int = 10) -> List[Dict[s
         sql = """
         SELECT id, name, category, products, priority, cashback, hours, 
                address, phone, url_order, imagen_url, url_extra, afiliado,
-               lat, lng
+               lat, lng, timezone,
+               mon_open, mon_close, tue_open, tue_close, wed_open, wed_close,
+               thu_open, thu_close, fri_open, fri_close, sat_open, sat_close,
+               sun_open, sun_close
         FROM public.places 
         WHERE EXISTS (
             SELECT 1 FROM jsonb_array_elements_text(products) as item
@@ -849,7 +882,10 @@ async def search_places_without_location_ai(craving: str, language: str, wa_id: 
         sql = """
         SELECT id, name, category, products, priority, cashback, hours, 
                address, phone, url_order, imagen_url, url_extra, afiliado,
-               lat, lng
+               lat, lng, timezone,
+               mon_open, mon_close, tue_open, tue_close, wed_open, wed_close,
+               thu_open, thu_close, fri_open, fri_close, sat_open, sat_close,
+               sun_open, sun_close
         FROM public.places 
         WHERE EXISTS (
             SELECT 1 FROM jsonb_array_elements_text(products) as item
@@ -903,7 +939,10 @@ def search_places_with_location(craving: str, user_lat: float, user_lng: float, 
         WITH distances AS (
             SELECT id, name, category, products, priority, cashback, hours,
                    address, phone, url_order, imagen_url, url_extra, afiliado,
-                   lat, lng,
+                   lat, lng, timezone,
+                   mon_open, mon_close, tue_open, tue_close, wed_open, wed_close,
+                   thu_open, thu_close, fri_open, fri_close, sat_open, sat_close,
+                   sun_open, sun_close,
                    CASE 
                        WHEN lat IS NOT NULL AND lng IS NOT NULL THEN
                            6371000 * 2 * ASIN(SQRT(
@@ -980,7 +1019,10 @@ async def search_places_with_location_ai(craving: str, user_lat: float, user_lng
         WITH distances AS (
             SELECT id, name, category, products, priority, cashback, hours,
                    address, phone, url_order, imagen_url, url_extra, afiliado,
-                   lat, lng,
+                   lat, lng, timezone,
+                   mon_open, mon_close, tue_open, tue_close, wed_open, wed_close,
+                   thu_open, thu_close, fri_open, fri_close, sat_open, sat_close,
+                   sun_open, sun_close,
                    CASE 
                        WHEN lat IS NOT NULL AND lng IS NOT NULL THEN
                            6371000 * 2 * ASIN(SQRT(
