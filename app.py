@@ -819,6 +819,17 @@ business_name only has value if they mentioned a specific business name."""
             data = response.json()
             content = data.get("choices", [{}])[0].get("message", {}).get("content", "").strip()
             
+            # ✅ FIX: Limpiar markdown backticks y texto extra antes de parsear
+            content = content.strip()
+            # Remover ```json y ``` si existen
+            if content.startswith("```json"):
+                content = content[7:]  # Remover ```json
+            elif content.startswith("```"):
+                content = content[3:]  # Remover ```
+            if content.endswith("```"):
+                content = content[:-3]  # Remover ```
+            content = content.strip()
+            
             result = json.loads(content)
             intent = result.get("intent", "other")
             craving = result.get("craving")
@@ -1378,47 +1389,46 @@ Máximo 3 líneas. No uses markdown."""
 
 def detect_non_spanish_greeting(text: str) -> bool:
     """
-    Detecta si el mensaje es un saludo en inglés u otro idioma (NO español).
-    Retorna True si detecta inglés/otro idioma, False si es español o no es un saludo.
+    Detecta si el mensaje es un saludo en otro idioma (NO español).
+    USA LISTA BLANCA: Solo permite saludos específicos en español.
+    TODO lo demás se considera otro idioma.
+    Retorna True si detecta otro idioma, False si es español válido.
     """
     text_lower = text.lower().strip()
     
-    # Saludos comunes en inglés y otros idiomas
-    non_spanish_greetings = [
-        # Inglés
-        'hello', 'hi', 'hey', 'good morning', 'good afternoon', 'good evening',
-        'greetings', 'howdy', 'hiya', 'sup', "what's up", 'yo',
-        # Francés
-        'bonjour', 'salut', 'bonsoir',
-        # Italiano
-        'ciao', 'buongiorno',
-        # Alemán
-        'hallo', 'guten tag', 'guten morgen',
-        # Portugués
-        'oi', 'olá', 'bom dia',
-        # Otros
-        'hola' # NO - esto es español, pero vamos a manejarlo aparte
+    # ✅ LISTA BLANCA: Saludos PERMITIDOS en español
+    spanish_greetings = [
+        'hola', 'buenos dias', 'buenas dias', 'buen dia', 'buenas tardes', 'buenas noches',
+        'buen día', 'buenas días',  # Con acento
+        'que tal', 'qué tal', 'que onda', 'qué onda',
+        'saludos', 'holi', 'holaaa', 'holaa'
     ]
     
-    # Remover "hola" de la lista ya que es español
-    non_spanish_greetings = [g for g in non_spanish_greetings if g != 'hola']
-    
-    # Verificar si el mensaje completo o las primeras palabras coinciden
+    # Verificar si el mensaje O las primeras palabras coinciden con español
     words = text_lower.split()
     
-    for greeting in non_spanish_greetings:
-        # Verificar mensaje completo
-        if text_lower == greeting:
-            return True
-        # Verificar si empieza con el saludo
-        if text_lower.startswith(greeting + ' ') or text_lower.startswith(greeting + ','):
-            return True
-        # Verificar primeras dos palabras (para "good morning", etc.)
+    # Verificar mensaje completo
+    if text_lower in spanish_greetings:
+        return False  # Es español válido
+    
+    # Verificar si empieza con saludo español
+    for greeting in spanish_greetings:
+        if text_lower.startswith(greeting + ' ') or text_lower.startswith(greeting + ',') or text_lower.startswith(greeting + '!'):
+            return False  # Es español válido
+        # Verificar primeras dos palabras (para "buenos dias", etc.)
         if len(words) >= 2:
             two_words = ' '.join(words[:2])
             if two_words == greeting:
-                return True
+                return False  # Es español válido
     
+    # ✅ Si llegamos aquí y parece ser un saludo (corto, sin caracteres especiales), es otro idioma
+    # Detectar si es un saludo (mensajes muy cortos de 1-3 palabras sin caracteres especiales)
+    if len(words) <= 3 and len(text) <= 30:
+        # Es un mensaje corto que NO está en la lista blanca de español
+        # Muy probablemente es un saludo en otro idioma
+        return True
+    
+    # Si es un mensaje más largo y no es un saludo español, no asumimos que es saludo en otro idioma
     return False
 
 def get_fallback_greeting(name: str, language: str) -> str:
