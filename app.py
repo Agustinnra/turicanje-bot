@@ -1793,12 +1793,10 @@ async def handle_text_message(wa_id: str, text: str, phone_number_id: str = None
             intro_message = get_smart_response_message(display_results, craving, session["language"], session.get("user_location") is not None)
             results_list = format_results_list(display_results, session["language"])
             
-            if len(display_results) == 1:
-                response = f"¡Oye! {intro_message}"
-            else:
-                response = f"¡Hola! {intro_message}\n\n{results_list}\n\nEscribe el número del que te llame la atención"
-                if not session.get("user_location"):
-                    response += " o pásame tu ubicación para ver qué hay por tu zona 📍"
+            # ✅ SIEMPRE mostrar la lista, incluso si hay solo 1 resultado
+            response = f"¡Hola! {intro_message}\n\n{results_list}\n\nEscribe el número del que te llame la atención"
+            if not session.get("user_location"):
+                response += " o pásame tu ubicación para ver qué hay por tu zona 📍"
             
             await send_whatsapp_message(wa_id, response)
         else:
@@ -1826,13 +1824,11 @@ async def handle_text_message(wa_id: str, text: str, phone_number_id: str = None
             intro_message = get_smart_response_message(display_results, craving, session["language"], session.get("user_location") is not None)
             results_list = format_results_list(display_results, session["language"])
             
-            if len(display_results) == 1:
-                response = intro_message
-            else:
-                response = f"{intro_message}\n\n{results_list}\n\nMándame el número del que te guste"
-                
-                if not session.get("user_location"):
-                    response += " o mándame tu ubicación para ver qué hay cerca 📍"
+            # ✅ SIEMPRE mostrar la lista, incluso si hay solo 1 resultado
+            response = f"{intro_message}\n\n{results_list}\n\nMándame el número del que te guste"
+            
+            if not session.get("user_location"):
+                response += " o mándame tu ubicación para ver qué hay cerca 📍"
             
             await send_whatsapp_message(wa_id, response)
         else:
@@ -1882,10 +1878,8 @@ async def handle_location_message(wa_id: str, lat: float, lng: float, phone_numb
             intro_message = get_smart_response_message(display_results, craving, session["language"], True)
             results_list = format_results_list(display_results, session["language"])
 
-            if len(display_results) == 1:
-                response = intro_message
-            else:
-                response = f"{intro_message}\n\n{results_list}\n\nMándame el número del que te guste 📍"
+            # ✅ SIEMPRE mostrar la lista, incluso si hay solo 1 resultado
+            response = f"{intro_message}\n\n{results_list}\n\nMándame el número del que te guste 📍"
 
             await send_whatsapp_message(wa_id, response, phone_number_id)
         else:
