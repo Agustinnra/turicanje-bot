@@ -1376,6 +1376,51 @@ Máximo 3 líneas. No uses markdown."""
         print(f"[GREETING] Error con IA: {e}")
         return get_fallback_greeting(name, language)
 
+def detect_non_spanish_greeting(text: str) -> bool:
+    """
+    Detecta si el mensaje es un saludo en inglés u otro idioma (NO español).
+    Retorna True si detecta inglés/otro idioma, False si es español o no es un saludo.
+    """
+    text_lower = text.lower().strip()
+    
+    # Saludos comunes en inglés y otros idiomas
+    non_spanish_greetings = [
+        # Inglés
+        'hello', 'hi', 'hey', 'good morning', 'good afternoon', 'good evening',
+        'greetings', 'howdy', 'hiya', 'sup', "what's up", 'yo',
+        # Francés
+        'bonjour', 'salut', 'bonsoir',
+        # Italiano
+        'ciao', 'buongiorno',
+        # Alemán
+        'hallo', 'guten tag', 'guten morgen',
+        # Portugués
+        'oi', 'olá', 'bom dia',
+        # Otros
+        'hola' # NO - esto es español, pero vamos a manejarlo aparte
+    ]
+    
+    # Remover "hola" de la lista ya que es español
+    non_spanish_greetings = [g for g in non_spanish_greetings if g != 'hola']
+    
+    # Verificar si el mensaje completo o las primeras palabras coinciden
+    words = text_lower.split()
+    
+    for greeting in non_spanish_greetings:
+        # Verificar mensaje completo
+        if text_lower == greeting:
+            return True
+        # Verificar si empieza con el saludo
+        if text_lower.startswith(greeting + ' ') or text_lower.startswith(greeting + ','):
+            return True
+        # Verificar primeras dos palabras (para "good morning", etc.)
+        if len(words) >= 2:
+            two_words = ' '.join(words[:2])
+            if two_words == greeting:
+                return True
+    
+    return False
+
 def get_fallback_greeting(name: str, language: str) -> str:
     """Fallback de saludo. SIEMPRE EN ESPAÑOL."""
     templates = [
@@ -1743,6 +1788,18 @@ async def handle_text_message(wa_id: str, text: str, phone_number_id: str = None
     # ESCENARIO 1: Solo saludo sin craving
     if ((is_new_session and not craving) or 
         (intent == "greeting" and not craving and time_since_last > IDLE_RESET_SECONDS)):
+        
+        # ✅ NUEVO: Detectar si el saludo es en inglés/otro idioma
+        if detect_non_spanish_greeting(text):
+            response = (
+                "Hi! 👋 Please write in Spanish so I can help you better. Thanks! 😊\n\n"
+                "Hola! 👋 Por favor escribe en español para poder ayudarte mejor. ¡Gracias! 😊"
+            )
+            await send_whatsapp_message(wa_id, response, phone_number_id)
+            session["is_new"] = False
+            return
+        
+        # Saludo en español - continuar normal
         greeting = await generate_humanized_greeting(session["name"], session["language"])
         await send_whatsapp_message(wa_id, greeting, phone_number_id)
         session["is_new"] = False
