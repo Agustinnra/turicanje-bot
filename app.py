@@ -701,30 +701,35 @@ def get_or_create_user_session(wa_id: str) -> Dict[str, Any]:
 
 # ================= IA: EXTRACCIÓN DE INTENCIÓN =================
 async def expand_search_terms_with_ai(craving: str, language: str, wa_id: str) -> List[str]:
+    """
+    Expande términos de búsqueda de manera CONSERVADORA.
+    Solo incluye sinónimos muy cercanos o variaciones del mismo platillo.
+    """
     if not OPENAI_API_KEY:
         return [craving]
     
     try:
-        if language == "es":
-            system_prompt = """Eres un experto en comida mexicana. Te dan una palabra de comida y debes generar SOLO sinónimos y términos relacionados que realmente existen.
-NUNCA inventes productos. Solo expande con sinónimos reales.
-Responde SOLO una lista separada por comas, máximo 8 términos.
-Ejemplos: 
-- "cafe" -> "café, coffee, americano, cappuccino, latte, espresso"
-- "tacos" -> "tacos, taco, quesadillas, tortillas"
-- "pizza" -> "pizza, pizzas, italiana"
-No agregues explicaciones."""
-        else:
-            system_prompt = """You are a food expert. Given a food word, generate ONLY real synonyms and related terms that actually exist.
-NEVER invent products. Only expand with real synonyms.
-Respond ONLY a comma-separated list, maximum 8 terms.
-Examples:
-- "coffee" -> "coffee, café, americano, cappuccino, latte, espresso"
-- "tacos" -> "tacos, taco, quesadillas, tortillas"
-- "pizza" -> "pizza, pizzas, italian"
-No explanations."""
+        system_prompt = """Eres un experto en comida mexicana. Te dan UNA palabra de comida y debes generar SOLO sinónimos DIRECTOS o variaciones del MISMO PLATILLO.
+
+REGLAS ESTRICTAS:
+- Solo expande a variaciones del mismo platillo (ej: "barbacoa" → "barbacoa de borrego", "barbacoa de res")
+- NUNCA incluyas platillos diferentes aunque sean similares
+- NUNCA incluyas ingredientes genéricos (ej: "carne", "pollo")
+- NUNCA incluyas métodos de preparación genéricos (ej: "al vapor", "deshebrada")
+- Máximo 4 términos en total
+
+Ejemplos BUENOS:
+- "barbacoa" → "barbacoa, barbacoa de borrego, barbacoa de res"
+- "tacos" → "tacos, taco"
+- "cochinita" → "cochinita, cochinita pibil"
+
+Ejemplos MALOS (NO hacer):
+- "barbacoa" → "barbacoa, pibil, carnitas, carne" ❌ (pibil es diferente)
+- "tacos" → "tacos, quesadillas, tortas" ❌ (son platillos diferentes)
+
+Responde SOLO una lista separada por comas, sin explicaciones."""
         
-        user_prompt = f"Expand: {craving}"
+        user_prompt = f"Expand de forma conservadora: {craving}"
         
         async with httpx.AsyncClient(timeout=10) as client:
             response = await client.post(
@@ -735,12 +740,12 @@ No explanations."""
                 },
                 json={
                     "model": "gpt-4o-mini",
-                    "temperature": 0.3,
+                    "temperature": 0.1,  # ✅ Más bajo para ser más conservador
                     "messages": [
                         {"role": "system", "content": system_prompt},
                         {"role": "user", "content": user_prompt}
                     ],
-                    "max_tokens": 60
+                    "max_tokens": 40  # ✅ Menos tokens = menos expansión
                 }
             )
         
@@ -752,7 +757,7 @@ No explanations."""
                 terms = [term.strip().lower() for term in content.split(",") if term.strip()]
                 terms = [craving.lower()] + [t for t in terms if t != craving.lower()]
                 print(f"[AI-EXPAND] {wa_id}: '{craving}' -> {terms}")
-                return terms[:8]
+                return terms[:4]  # ✅ Máximo 4 términos
         
         return [craving]
         
@@ -986,12 +991,29 @@ def search_places_without_location(craving: str, limit: int = 10) -> List[Dict[s
         print(f"[DB-SEARCH] Error: {e}")
         return []
 
-async def search_places_without_location_ai(craving: str, language: str, wa_id: str, limit: int = 10) -> List[Dict[str, Any]]:
-    """Búsqueda con expansión de IA"""
-    if not craving:
-        return []
+async def search_places_without_location_ai(craving: str, language: str, wa_id: str, limit: int = 10) -> tuple[List[Dict[str, Any]], bool]:
+    """
+    Búsqueda en DOS ETAPAS:
+    1. Busca término exacto primero
+    2. Si no encuentra nada, busca con expansión de IA
     
-    # Expandir términos con IA
+    Retorna: (resultados, used_expansion)
+    - used_expansion=False si encontró con término exacto
+    - used_expansion=True si tuvo que usar expansión
+    """
+    if not craving:
+        return [], False
+    
+    # ETAPA 1: Buscar término EXACTO primero
+    print(f"[DB-SEARCH] ETAPA 1: Buscando término exacto '{craving}'")
+    exact_results = search_places_without_location(craving, limit)
+    
+    if exact_results:
+        print(f"[DB-SEARCH] ✅ Encontrados {len(exact_results)} con término exacto")
+        return exact_results, False
+    
+    # ETAPA 2: No encontró nada exacto, usar expansión de IA
+    print(f"[DB-SEARCH] ETAPA 2: No encontró exacto, expandiendo con IA...")
     expanded_terms = await expand_search_terms_with_ai(craving, language, wa_id)
     
     try:
@@ -1024,7 +1046,7 @@ async def search_places_without_location_ai(craving: str, language: str, wa_id: 
             "limit": limit
         }
         
-        print(f"[DB-SEARCH] CON IA - Buscando términos: {expanded_terms}")
+        print(f"[DB-SEARCH] Buscando con expansión: {expanded_terms}")
         
         with get_pool().connection() as conn, conn.cursor(row_factory=psycopg.rows.dict_row) as cur:
             cur.execute(sql, params)
@@ -1038,11 +1060,16 @@ async def search_places_without_location_ai(craving: str, language: str, wa_id: 
 
                 results.append(place)
             
-            print(f"[DB-SEARCH] Con IA sin ubicación: {len(results)} resultados")
-            return results
+            if results:
+                print(f"[DB-SEARCH] ✅ Encontrados {len(results)} con expansión")
+            else:
+                print(f"[DB-SEARCH] ❌ No encontró nada ni con expansión")
+            
+            return results, True  # used_expansion=True
             
     except Exception as e:
-        print(f"[DB-SEARCH] Error con IA: {e}")
+        print(f"[DB-SEARCH] Error con expansión: {e}")
+        return [], False
         return []
 
 def search_places_with_location(craving: str, user_lat: float, user_lng: float, limit: int = 10) -> List[Dict[str, Any]]:
@@ -1122,12 +1149,27 @@ def search_places_with_location(craving: str, user_lat: float, user_lng: float, 
         print(f"[DB-SEARCH] Error con ubicación: {e}")
         return []
 
-async def search_places_with_location_ai(craving: str, user_lat: float, user_lng: float, language: str, wa_id: str, limit: int = 10) -> List[Dict[str, Any]]:
-    """Búsqueda con ubicación y expansión de IA"""
-    if not craving:
-        return []
+async def search_places_with_location_ai(craving: str, user_lat: float, user_lng: float, language: str, wa_id: str, limit: int = 10) -> tuple[List[Dict[str, Any]], bool]:
+    """
+    Búsqueda con ubicación en DOS ETAPAS:
+    1. Busca término exacto primero
+    2. Si no encuentra nada, busca con expansión de IA
     
-    # Expandir términos con IA
+    Retorna: (resultados, used_expansion)
+    """
+    if not craving:
+        return [], False
+    
+    # ETAPA 1: Buscar término EXACTO primero
+    print(f"[DB-SEARCH] ETAPA 1 (con ubicación): Buscando término exacto '{craving}'")
+    exact_results = search_places_with_location(craving, user_lat, user_lng, limit)
+    
+    if exact_results:
+        print(f"[DB-SEARCH] ✅ Encontrados {len(exact_results)} con término exacto")
+        return exact_results, False
+    
+    # ETAPA 2: No encontró nada exacto, usar expansión de IA
+    print(f"[DB-SEARCH] ETAPA 2 (con ubicación): No encontró exacto, expandiendo con IA...")
     expanded_terms = await expand_search_terms_with_ai(craving, language, wa_id)
     
     try:
@@ -1175,7 +1217,7 @@ async def search_places_with_location_ai(craving: str, user_lat: float, user_lng
             "limit": limit
         }
         
-        print(f"[DB-SEARCH] CON IA Y UBICACIÓN - términos: {expanded_terms}")
+        print(f"[DB-SEARCH] Buscando con expansión y ubicación: {expanded_terms}")
         
         with get_pool().connection() as conn, conn.cursor(row_factory=psycopg.rows.dict_row) as cur:
             cur.execute(sql, params)
@@ -1191,6 +1233,20 @@ async def search_places_with_location_ai(craving: str, user_lat: float, user_lng
                 if place.get("distance_meters") and place["distance_meters"] < 999999:
                     place["distance_text"] = format_distance(place["distance_meters"])
                 else:
+                    place["distance_text"] = ""
+                
+                results.append(place)
+            
+            if results:
+                print(f"[DB-SEARCH] ✅ Encontrados {len(results)} con expansión y ubicación")
+            else:
+                print(f"[DB-SEARCH] ❌ No encontró nada ni con expansión")
+            
+            return results, True  # used_expansion=True
+            
+    except Exception as e:
+        print(f"[DB-SEARCH] Error con expansión y ubicación: {e}")
+        return [], False
                     place["distance_text"] = ""
                 
                 results.append(place)
@@ -1847,9 +1903,9 @@ async def handle_text_message(wa_id: str, text: str, phone_number_id: str = None
         if session.get("user_location"):
             user_lat = session["user_location"]["lat"]
             user_lng = session["user_location"]["lng"] 
-            results = await search_places_with_location_ai(craving, user_lat, user_lng, session["language"], wa_id, 10)
+            results, used_expansion = await search_places_with_location_ai(craving, user_lat, user_lng, session["language"], wa_id, 10)
         else:
-            results = await search_places_without_location_ai(craving, session["language"], wa_id, 10)
+            results, used_expansion = await search_places_without_location_ai(craving, session["language"], wa_id, 10)
         
         # Limitar a 5 para mostrar, pero buscar hasta 10
         display_results = results[:MAX_SUGGESTIONS]
@@ -1857,7 +1913,13 @@ async def handle_text_message(wa_id: str, text: str, phone_number_id: str = None
         
         if display_results:
             session["last_results"] = display_results  # Guardamos todos los resultados
-            intro_message = get_smart_response_message(display_results, craving, session["language"], session.get("user_location") is not None)
+            
+            # ✅ NUEVO: Si usó expansión, avisar al usuario
+            if used_expansion:
+                intro_message = f"No encontré {craving} exactamente, pero estos lugares tienen platillos similares"
+            else:
+                intro_message = get_smart_response_message(display_results, craving, session["language"], session.get("user_location") is not None)
+            
             results_list = format_results_list(display_results, session["language"])
             
             # ✅ SIEMPRE mostrar la lista, incluso si hay solo 1 resultado
@@ -1878,9 +1940,9 @@ async def handle_text_message(wa_id: str, text: str, phone_number_id: str = None
         if session.get("user_location"):
             user_lat = session["user_location"]["lat"]
             user_lng = session["user_location"]["lng"] 
-            results = await search_places_with_location_ai(craving, user_lat, user_lng, session["language"], wa_id, 10)
+            results, used_expansion = await search_places_with_location_ai(craving, user_lat, user_lng, session["language"], wa_id, 10)
         else:
-            results = await search_places_without_location_ai(craving, session["language"], wa_id, 10)
+            results, used_expansion = await search_places_without_location_ai(craving, session["language"], wa_id, 10)
         
         # Limitar a 5 para mostrar, pero buscar hasta 10
         display_results = results[:MAX_SUGGESTIONS]
@@ -1888,7 +1950,13 @@ async def handle_text_message(wa_id: str, text: str, phone_number_id: str = None
         
         if display_results:
             session["last_results"] = display_results  # Guardamos todos los resultados
-            intro_message = get_smart_response_message(display_results, craving, session["language"], session.get("user_location") is not None)
+            
+            # ✅ NUEVO: Si usó expansión, avisar al usuario
+            if used_expansion:
+                intro_message = f"No encontré {craving} exactamente, pero estos lugares tienen platillos similares"
+            else:
+                intro_message = get_smart_response_message(display_results, craving, session["language"], session.get("user_location") is not None)
+            
             results_list = format_results_list(display_results, session["language"])
             
             # ✅ SIEMPRE mostrar la lista, incluso si hay solo 1 resultado
@@ -1934,7 +2002,7 @@ async def handle_location_message(wa_id: str, lat: float, lng: float, phone_numb
     
     if session.get("last_search") and session["last_search"].get("craving"):
         craving = session["last_search"]["craving"]
-        results = await search_places_with_location_ai(craving, lat, lng, session["language"], wa_id, 10)
+        results, used_expansion = await search_places_with_location_ai(craving, lat, lng, session["language"], wa_id, 10)
 
         # Limitar a MAX_SUGGESTIONS para mostrar, pero buscar hasta 10
         display_results = results[:MAX_SUGGESTIONS]
@@ -1942,7 +2010,13 @@ async def handle_location_message(wa_id: str, lat: float, lng: float, phone_numb
 
         if display_results:
             session["last_results"] = display_results
-            intro_message = get_smart_response_message(display_results, craving, session["language"], True)
+            
+            # ✅ NUEVO: Si usó expansión, avisar al usuario
+            if used_expansion:
+                intro_message = f"No encontré {craving} exactamente, pero estos lugares tienen platillos similares cerca de ti"
+            else:
+                intro_message = get_smart_response_message(display_results, craving, session["language"], True)
+            
             results_list = format_results_list(display_results, session["language"])
 
             # ✅ SIEMPRE mostrar la lista, incluso si hay solo 1 resultado
