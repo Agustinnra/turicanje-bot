@@ -879,7 +879,7 @@ def search_place_by_name(business_name: str) -> Optional[Dict[str, Any]]:
         sql = """
         SELECT id, name, category, products, priority, cashback, hours, 
                address, phone, url_order, imagen_url, url_extra, afiliado,
-               lat, lng, timezone,
+               lat, lng, timezone, delivery,
                mon_open, mon_close, tue_open, tue_close, wed_open, wed_close,
                thu_open, thu_close, fri_open, fri_close, sat_open, sat_close,
                sun_open, sun_close
@@ -928,7 +928,7 @@ def search_places_without_location(craving: str, limit: int = 10) -> List[Dict[s
         sql = """
         SELECT id, name, category, products, priority, cashback, hours, 
                address, phone, url_order, imagen_url, url_extra, afiliado,
-               lat, lng, timezone,
+               lat, lng, timezone, delivery,
                mon_open, mon_close, tue_open, tue_close, wed_open, wed_close,
                thu_open, thu_close, fri_open, fri_close, sat_open, sat_close,
                sun_open, sun_close
@@ -987,7 +987,7 @@ async def search_places_without_location_ai(craving: str, language: str, wa_id: 
         sql = """
         SELECT id, name, category, products, priority, cashback, hours, 
                address, phone, url_order, imagen_url, url_extra, afiliado,
-               lat, lng, timezone,
+               lat, lng, timezone, delivery,
                mon_open, mon_close, tue_open, tue_close, wed_open, wed_close,
                thu_open, thu_close, fri_open, fri_close, sat_open, sat_close,
                sun_open, sun_close
@@ -1044,7 +1044,7 @@ def search_places_with_location(craving: str, user_lat: float, user_lng: float, 
         WITH distances AS (
             SELECT id, name, category, products, priority, cashback, hours,
                    address, phone, url_order, imagen_url, url_extra, afiliado,
-                   lat, lng, timezone,
+                   lat, lng, timezone, delivery,
                    mon_open, mon_close, tue_open, tue_close, wed_open, wed_close,
                    thu_open, thu_close, fri_open, fri_close, sat_open, sat_close,
                    sun_open, sun_close,
@@ -1124,7 +1124,7 @@ async def search_places_with_location_ai(craving: str, user_lat: float, user_lng
         WITH distances AS (
             SELECT id, name, category, products, priority, cashback, hours,
                    address, phone, url_order, imagen_url, url_extra, afiliado,
-                   lat, lng, timezone,
+                   lat, lng, timezone, delivery,
                    mon_open, mon_close, tue_open, tue_close, wed_open, wed_close,
                    thu_open, thu_close, fri_open, fri_close, sat_open, sat_close,
                    sun_open, sun_close,
@@ -1201,7 +1201,8 @@ def format_results_list(results: List[Dict[str, Any]], language: str) -> str:
     for idx, place in enumerate(results, 1):
         name = place.get("name") or place.get("name_es") or place.get("name_en") or "Sin nombre"
         distance = place.get("distance_text", "") or ""
-        url = place.get("url_order") or place.get("url_extra") or ""
+        # ✅ FIX: Priorizar url_extra (columna X) sobre url_order
+        url = place.get("url_extra") or place.get("url_order") or ""
         cashback = bool(place.get("cashback", False))
 
         # Servicio a domicilio
@@ -1273,7 +1274,8 @@ def format_place_details(place: Dict[str, Any], language: str) -> str:
     cashback = place.get("cashback", False)
     hours = place.get("hours", {})
     
-    main_url = url_order or url_extra
+    # ✅ FIX: Priorizar url_extra (columna X) sobre url_order
+    main_url = url_extra or url_order
     is_open, hours_info = is_place_open(hours)
     
     if language == "es":
