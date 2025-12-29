@@ -6,7 +6,7 @@ import re
 import random
 import time
 import math
-from typing import Dict, Optional, Any, List
+from typing import Dict, Optional, Any, List, Tuple
 from datetime import datetime, time as dt_time
 
 
@@ -112,7 +112,7 @@ def is_open_now_by_day(place: dict) -> bool:
     print(f"[OPEN-CHECK] ❌ {place_name} CERRADO")
     return False
 
-def get_hours_status_from_columns(place: dict) -> tuple[bool, str, bool]:
+def get_hours_status_from_columns(place: dict) -> Tuple[bool, str, bool]:
     """
     Calcula el estado de horarios usando las columnas individuales (mon_open, tue_open, etc.)
     
@@ -122,7 +122,7 @@ def get_hours_status_from_columns(place: dict) -> tuple[bool, str, bool]:
     - Verifica día anterior si son horas tempranas (antes de 6 AM)
     
     Returns:
-        tuple[bool, str, bool]: (is_open, hours_text, has_hours)
+        Tuple[bool, str, bool]: (is_open, hours_text, has_hours)
         - is_open: True si está abierto ahora
         - hours_text: Texto descriptivo ("hasta 22:00", "abre a las 09:00", etc.)
         - has_hours: True si tiene información de horarios en la BD
@@ -378,7 +378,7 @@ def compute_open_status(place: dict) -> dict:
 
 # Agregar estas funciones a tu app.py después de la función format_distance
 
-def is_place_open(hours: dict) -> tuple[bool, str]:
+def is_place_open(hours: dict) -> Tuple[bool, str]:
     """
     Verifica si un lugar está abierto basado en sus horarios.
     MANEJA CORRECTAMENTE: Horarios que cruzan medianoche (ej: 22:00-02:00)
@@ -991,7 +991,7 @@ def search_places_without_location(craving: str, limit: int = 10) -> List[Dict[s
         print(f"[DB-SEARCH] Error: {e}")
         return []
 
-async def search_places_without_location_ai(craving: str, language: str, wa_id: str, limit: int = 10) -> tuple[List[Dict[str, Any]], bool]:
+async def search_places_without_location_ai(craving: str, language: str, wa_id: str, limit: int = 10) -> Tuple[List[Dict[str, Any]], bool]:
     """
     Búsqueda en DOS ETAPAS:
     1. Busca término exacto primero
@@ -1149,7 +1149,7 @@ def search_places_with_location(craving: str, user_lat: float, user_lng: float, 
         print(f"[DB-SEARCH] Error con ubicación: {e}")
         return []
 
-async def search_places_with_location_ai(craving: str, user_lat: float, user_lng: float, language: str, wa_id: str, limit: int = 10) -> tuple[List[Dict[str, Any]], bool]:
+async def search_places_with_location_ai(craving: str, user_lat: float, user_lng: float, language: str, wa_id: str, limit: int = 10) -> Tuple[List[Dict[str, Any]], bool]:
     """
     Búsqueda con ubicación en DOS ETAPAS:
     1. Busca término exacto primero
