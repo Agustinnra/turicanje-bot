@@ -1273,6 +1273,7 @@ def format_place_details(place: Dict[str, Any], language: str) -> str:
     products = place.get("products", [])
     cashback = place.get("cashback", False)
     hours = place.get("hours", {})
+    delivery = place.get("delivery", False)  # ✅ NUEVO: Obtener delivery
     
     # ✅ FIX: Priorizar url_extra (columna X) sobre url_order
     main_url = url_extra or url_order
@@ -1301,6 +1302,10 @@ def format_place_details(place: Dict[str, Any], language: str) -> str:
         
         if main_url:
             lines.append(f"🔗 {main_url}")
+        
+        # ✅ NUEVO: Mostrar link de delivery si está disponible
+        if delivery and url_order:
+            lines.append(f"🚚 Pedir a domicilio: {url_order}")
         
         # Mostrar horarios de la semana si existen
         if hours:
@@ -1348,6 +1353,10 @@ def format_place_details(place: Dict[str, Any], language: str) -> str:
         
         if main_url:
             lines.append(f"🔗 {main_url}")
+        
+        # ✅ NUEVO: Mostrar link de delivery si está disponible
+        if delivery and url_order:
+            lines.append(f"🚚 Order delivery: {url_order}")
         
         # Mostrar horarios en inglés
         if hours:
