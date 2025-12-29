@@ -1192,7 +1192,7 @@ async def search_places_with_location_ai(craving: str, user_lat: float, user_lng
         return []
 
 def format_results_list(results: List[Dict[str, Any]], language: str) -> str:
-    """Lista estilizada con información completa del negocio incluyendo horarios."""
+    """Lista estilizada con información completa del negocio incluyendo horarios. SIEMPRE EN ESPAÑOL."""
     if not results:
         return ""
 
@@ -1211,51 +1211,27 @@ def format_results_list(results: List[Dict[str, Any]], language: str) -> str:
         # ✅ NUEVO: Usar columnas individuales de horarios
         is_open, hours_info, has_hours = get_hours_status_from_columns(place)
 
-        if language == "es":
-            # Determinar el título basado en el estado de horarios
-            if not has_hours:
-                title = f"📍 {idx}) {name} ⚪ HORARIO NO DISPONIBLE"
-            elif is_open:
-                title = f"📍 {idx}) {name} 🟢 ABIERTO"
-                if hours_info:
-                    title += f" ({hours_info})"
-            else:
-                title = f"📍 {idx}) {name} 🔴 CERRADO"
-                if hours_info:
-                    title += f" ({hours_info})"
-
-            block = [title]
-            block.append(f"🚚 Servicio a domicilio: {'Sí ✅' if has_delivery else 'No ❌'}")
-            block.append(f"💳 Acumula cashback: {'Sí 💰' if cashback else 'No'}")
-
-            if distance:
-                block.append(f"📍 Distancia: {distance}")
-
-            if url:
-                block.append(f"🔗 Ver el lugar: {url}")
-
+        # Determinar el título basado en el estado de horarios
+        if not has_hours:
+            title = f"📍 {idx}) {name} ⚪ HORARIO NO DISPONIBLE"
+        elif is_open:
+            title = f"📍 {idx}) {name} 🟢 ABIERTO"
+            if hours_info:
+                title += f" ({hours_info})"
         else:
-            # English version
-            if not has_hours:
-                title = f"📍 {idx}) {name} ⚪ HOURS NOT AVAILABLE"
-            elif is_open:
-                title = f"📍 {idx}) {name} 🟢 OPEN"
-                if hours_info:
-                    title += f" ({hours_info})"
-            else:
-                title = f"📍 {idx}) {name} 🔴 CLOSED"
-                if hours_info:
-                    title += f" ({hours_info})"
+            title = f"📍 {idx}) {name} 🔴 CERRADO"
+            if hours_info:
+                title += f" ({hours_info})"
 
-            block = [title]
-            block.append(f"🚚 Home delivery: {'Yes ✅' if has_delivery else 'No ❌'}")
-            block.append(f"💳 Cashback: {'Yes 💰' if cashback else 'No'}")
+        block = [title]
+        block.append(f"🚚 Servicio a domicilio: {'Sí ✅' if has_delivery else 'No ❌'}")
+        block.append(f"💳 Acumula cashback: {'Sí 💰' if cashback else 'No'}")
 
-            if distance:
-                block.append(f"📍 Distance: {distance}")
+        if distance:
+            block.append(f"📍 Distancia: {distance}")
 
-            if url:
-                block.append(f"🔗 View: {url}")
+        if url:
+            block.append(f"🔗 Ver el lugar: {url}")
 
         lines.append("\n".join(block))
 
@@ -1263,7 +1239,7 @@ def format_results_list(results: List[Dict[str, Any]], language: str) -> str:
 
 
 def format_place_details(place: Dict[str, Any], language: str) -> str:
-    """Detalles completos de un lugar con cashback y horarios"""
+    """Detalles completos de un lugar con cashback y horarios. SIEMPRE EN ESPAÑOL."""
     name = place.get("name", "Sin nombre")
     address = place.get("address", "Dirección no disponible")
     phone = place.get("phone", "")
@@ -1279,158 +1255,86 @@ def format_place_details(place: Dict[str, Any], language: str) -> str:
     main_url = url_extra or url_order
     is_open, hours_info = is_place_open(hours)
     
-    if language == "es":
-        lines = [f"📍 {name}"]
-        
-        # Estado de apertura
-        if is_open:
-            lines.append(f"🟢 ABIERTO {f'({hours_info})' if hours_info else ''}")
-        else:
-            lines.append(f"🔴 CERRADO {f'({hours_info})' if hours_info else ''}")
-        
-        # Cashback destacado
-        if cashback:
-            lines.append("💰 ¡CON CASHBACK DISPONIBLE! 🎉")
-        
-        if distance:
-            lines.append(f"🚗 A {distance} de ti")
-        
-        lines.append(f"📍 {address}")
-        
-        if phone:
-            lines.append(f"📞 {phone}")
-        
-        if main_url:
-            lines.append(f"🔗 {main_url}")
-        
-        # ✅ NUEVO: Mostrar link de delivery si está disponible
-        if delivery and url_order:
-            lines.append(f"🚚 Pedir a domicilio: {url_order}")
-        
-        # Mostrar horarios de la semana si existen
-        if hours:
-            lines.append("\n⏰ Horarios:")
-            day_names = {
-                'mon': 'Lun', 'tue': 'Mar', 'wed': 'Mié',
-                'thu': 'Jue', 'fri': 'Vie', 'sat': 'Sáb', 'sun': 'Dom'
-            }
-            for day in ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun']:
-                if day in hours:
-                    schedules = hours[day]
-                    times = []
-                    for schedule in schedules:
-                        if len(schedule) == 2:
-                            times.append(f"{schedule[0]}-{schedule[1]}")
-                    if times:
-                        lines.append(f"  {day_names[day]}: {', '.join(times)}")
-        
-        if products and len(products) > 0:
-            products_text = ", ".join(products[:6])
-            lines.append(f"\n🍽️ Especialidades: {products_text}")
-        
-        lines.append("\n¿Te interesa otro lugar o quieres que busque algo más? 😊")
-        
+    lines = [f"📍 {name}"]
+    
+    # Estado de apertura
+    if is_open:
+        lines.append(f"🟢 ABIERTO {f'({hours_info})' if hours_info else ''}")
     else:
-        lines = [f"📍 {name}"]
-        
-        # Estado de apertura en inglés
-        if is_open:
-            lines.append(f"🟢 OPEN {f'({hours_info})' if hours_info else ''}")
-        else:
-            lines.append(f"🔴 CLOSED {f'({hours_info})' if hours_info else ''}")
-        
-        # Cashback destacado
-        if cashback:
-            lines.append("💰 CASHBACK AVAILABLE! 🎉")
-        
-        if distance:
-            lines.append(f"🚗 {distance} away")
-        
-        lines.append(f"📍 {address}")
-        
-        if phone:
-            lines.append(f"📞 {phone}")
-        
-        if main_url:
-            lines.append(f"🔗 {main_url}")
-        
-        # ✅ NUEVO: Mostrar link de delivery si está disponible
-        if delivery and url_order:
-            lines.append(f"🚚 Order delivery: {url_order}")
-        
-        # Mostrar horarios en inglés
-        if hours:
-            lines.append("\n⏰ Hours:")
-            day_names = {
-                'mon': 'Mon', 'tue': 'Tue', 'wed': 'Wed',
-                'thu': 'Thu', 'fri': 'Fri', 'sat': 'Sat', 'sun': 'Sun'
-            }
-            for day in ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun']:
-                if day in hours:
-                    schedules = hours[day]
-                    times = []
-                    for schedule in schedules:
-                        if len(schedule) == 2:
-                            times.append(f"{schedule[0]}-{schedule[1]}")
-                    if times:
-                        lines.append(f"  {day_names[day]}: {', '.join(times)}")
-        
-        if products and len(products) > 0:
-            products_text = ", ".join(products[:6])
-            lines.append(f"\n🍽️ Specialties: {products_text}")
-        
-        lines.append("\nInterested in another place or want me to search for something else? 😊")
+        lines.append(f"🔴 CERRADO {f'({hours_info})' if hours_info else ''}")
+    
+    # Cashback destacado
+    if cashback:
+        lines.append("💰 ¡CON CASHBACK DISPONIBLE! 🎉")
+    
+    if distance:
+        lines.append(f"🚗 A {distance} de ti")
+    
+    lines.append(f"📍 {address}")
+    
+    if phone:
+        lines.append(f"📞 {phone}")
+    
+    if main_url:
+        lines.append(f"🔗 {main_url}")
+    
+    # ✅ NUEVO: Mostrar link de delivery si está disponible
+    if delivery and url_order:
+        lines.append(f"🚚 Pedir a domicilio: {url_order}")
+    
+    # Mostrar horarios de la semana si existen
+    if hours:
+        lines.append("\n⏰ Horarios:")
+        day_names = {
+            'mon': 'Lun', 'tue': 'Mar', 'wed': 'Mié',
+            'thu': 'Jue', 'fri': 'Vie', 'sat': 'Sáb', 'sun': 'Dom'
+        }
+        for day in ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun']:
+            if day in hours:
+                schedules = hours[day]
+                times = []
+                for schedule in schedules:
+                    if len(schedule) == 2:
+                        times.append(f"{schedule[0]}-{schedule[1]}")
+                if times:
+                    lines.append(f"  {day_names[day]}: {', '.join(times)}")
+    
+    if products and len(products) > 0:
+        products_text = ", ".join(products[:6])
+        lines.append(f"\n🍽️ Especialidades: {products_text}")
+    
+    lines.append("\n¿Te interesa otro lugar o quieres que busque algo más? 😊")
     
     return "\n".join(lines)
 
 def get_smart_response_message(results: List[Dict[str, Any]], craving: str, language: str, has_location: bool) -> str:
-    """Respuestas humanas según cantidad"""
+    """Respuestas humanas según cantidad. SIEMPRE EN ESPAÑOL."""
     count = len(results)
     
-    if language == "es":
-        if count == 0:
-            return f"No encontré lugares que tengan {craving}" + (" cerca de ti" if has_location else "") + " 😕"
-        elif count == 1:
-            place_name = results[0].get("name", "un lugar")
-            return f"Solo conozco un lugar donde tienen {craving}: {place_name}" + (" cerca de ti" if has_location else "")
-        elif count <= 3:
-            return f"Te conseguí {count} lugares que tienen {craving}" + (" cerca de ti:" if has_location else ":")
-        else:
-            return f"Mira, te conseguí {count} opciones de {craving}" + (" cerca de ti:" if has_location else ":")
+    if count == 0:
+        return f"No encontré lugares que tengan {craving}" + (" cerca de ti" if has_location else "") + " 😕"
+    elif count == 1:
+        place_name = results[0].get("name", "un lugar")
+        return f"Solo conozco un lugar donde tienen {craving}: {place_name}" + (" cerca de ti" if has_location else "")
+    elif count <= 3:
+        return f"Te conseguí {count} lugares que tienen {craving}" + (" cerca de ti:" if has_location else ":")
     else:
-        if count == 0:
-            return f"Couldn't find places with {craving}" + (" near you" if has_location else "") + " 😕"
-        elif count == 1:
-            place_name = results[0].get("name", "one place")
-            return f"I only know one place with {craving}: {place_name}" + (" near you" if has_location else "")
-        elif count <= 3:
-            return f"Got {count} places with {craving}" + (" near you:" if has_location else ":")
-        else:
-            return f"Check this out, found {count} {craving} options" + (" near you:" if has_location else ":")
+        return f"Mira, te conseguí {count} opciones de {craving}" + (" cerca de ti:" if has_location else ":")
 
 # ================= SALUDOS CON IA =================
 async def generate_humanized_greeting(name: str, language: str) -> str:
+    """Genera saludo humanizado con IA. SIEMPRE EN ESPAÑOL."""
     if not OPENAI_API_KEY:
         return get_fallback_greeting(name, language)
     
     try:
-        if language == "es":
-            system_prompt = f"""Eres {name}, una persona real que trabaja recomendando lugares para comer en México.
+        system_prompt = f"""Eres {name}, una persona real que trabaja recomendando lugares para comer en México.
 Escribes como un amigo cálido por WhatsApp - natural, casual, sin ser formal.
 NUNCA menciones que eres un bot, IA o asistente automático.
 Usa 1-2 emojis máximo. Preséntate brevemente y pregunta qué se le antoja.
 Máximo 3 líneas. No uses markdown."""
-            
-            user_prompt = "Genera tu primer mensaje de saludo para alguien que acaba de escribirte."
         
-        else:
-            system_prompt = f"""You are {name}, a real person who works recommending places to eat in Mexico.
-You write like a warm friend on WhatsApp - natural, casual, not formal.
-NEVER mention you're a bot, AI, or automated assistant.
-Use 1-2 emojis max. Introduce yourself briefly and ask what they're craving.
-Maximum 3 lines. No markdown."""
-            
-            user_prompt = "Generate your first greeting message for someone who just wrote to you."
+        user_prompt = "Genera tu primer mensaje de saludo para alguien que acaba de escribirte."
         
         async with httpx.AsyncClient(timeout=15) as client:
             response = await client.post(
@@ -1463,7 +1367,7 @@ Maximum 3 lines. No markdown."""
                 if len(lines) > 3:
                     content = '\n'.join(lines[:3])
                 
-                print(f"[GREETING] IA generó saludo para {name} ({language})")
+                print(f"[GREETING] IA generó saludo para {name} (es)")
                 return content
         
         return get_fallback_greeting(name, language)
@@ -1473,19 +1377,12 @@ Maximum 3 lines. No markdown."""
         return get_fallback_greeting(name, language)
 
 def get_fallback_greeting(name: str, language: str) -> str:
-    if language == "es":
-        templates = [
-            f"¡Hola! Soy {name} 😊 ¿Qué antojo tienes hoy?",
-            f"¡Hey! Me llamo {name} 🍽️ ¿Se te antoja algo en particular?",
-            f"¡Hola! Soy {name} ¿Qué tienes ganas de comer? 😋"
-        ]
-    else:
-        templates = [
-            f"Hi! I'm {name} 😊 What are you craving today?",
-            f"Hey! My name is {name} 🍽️ Got any specific cravings?",
-            f"Hello! I'm {name} What are you in the mood for? 😋"
-        ]
-    
+    """Fallback de saludo. SIEMPRE EN ESPAÑOL."""
+    templates = [
+        f"¡Hola! Soy {name} 😊 ¿Qué antojo tienes hoy?",
+        f"¡Hey! Me llamo {name} 🍽️ ¿Se te antoja algo en particular?",
+        f"¡Hola! Soy {name} ¿Qué tienes ganas de comer? 😋"
+    ]
     return random.choice(templates)
 
 # ================= ROUTES =================
@@ -1837,12 +1734,8 @@ async def handle_text_message(wa_id: str, text: str, phone_number_id: str = None
             # Guardar en sesión por si quiere más info
             session["last_results"] = [place]
         else:
-            # No encontrado
-            if session["language"] == "es":
-                response = f"No encontré '{business_name}' en mi lista 😕 ¿Quieres que busque algo más o me dices qué tipo de comida te gustaría?"
-            else:
-                response = f"Couldn't find '{business_name}' on my list 😕 Want me to search for something else or tell me what kind of food you'd like?"
-            
+            # No encontrado - SIEMPRE EN ESPAÑOL
+            response = f"No encontré '{business_name}' en mi lista 😕 ¿Quieres que busque algo más o me dices qué tipo de comida te gustaría?"
             await send_whatsapp_message(wa_id, response, phone_number_id)
         
         return
@@ -1872,10 +1765,7 @@ async def handle_text_message(wa_id: str, text: str, phone_number_id: str = None
 
                 return
             else:
-                if session["language"] == "es":
-                    response = f"Elige un número del 1 al {len(results)}, porfa 😊"
-                else:
-                    response = f"Pick a number from 1 to {len(results)}, please 😊"
+                response = f"Elige un número del 1 al {len(results)}, porfa 😊"
                 await send_whatsapp_message(wa_id, response)
                 return
         except ValueError:
@@ -1904,27 +1794,15 @@ async def handle_text_message(wa_id: str, text: str, phone_number_id: str = None
             results_list = format_results_list(display_results, session["language"])
             
             if len(display_results) == 1:
-                if session["language"] == "es":
-                    response = f"¡Oye! {intro_message}"
-                else:
-                    response = f"Hey! {intro_message}"
+                response = f"¡Oye! {intro_message}"
             else:
-                if session["language"] == "es":
-                    response = f"¡Hola! {intro_message}\n\n{results_list}\n\nEscribe el número del que te llame la atención"
-                    if not session.get("user_location"):
-                        response += " o pásame tu ubicación para ver qué hay por tu zona 📍"
-                else:
-                    response = f"Hey! {intro_message}\n\n{results_list}\n\nJust send me the number of the one you like"
-                    if not session.get("user_location"):
-                        response += " or send your location to see what's around you 📍"
+                response = f"¡Hola! {intro_message}\n\n{results_list}\n\nEscribe el número del que te llame la atención"
+                if not session.get("user_location"):
+                    response += " o pásame tu ubicación para ver qué hay por tu zona 📍"
             
             await send_whatsapp_message(wa_id, response)
         else:
-            if session["language"] == "es":
-                response = f"¡Hola! Ay no, no tengo {craving} en mi lista. ¿Qué tal si me dices otra cosa que se te antoje o me mandas tu ubicación para ver qué opciones hay por ahí?"
-            else:
-                response = f"Hey! Damn, don't have {craving} on my list. How about telling me something else you're craving or send your location to see what's around?"
-            
+            response = f"¡Hola! Ay no, no tengo {craving} en mi lista. ¿Qué tal si me dices otra cosa que se te antoje o me mandas tu ubicación para ver qué opciones hay por ahí?"
             await send_whatsapp_message(wa_id, response)
         return
     
@@ -1951,48 +1829,28 @@ async def handle_text_message(wa_id: str, text: str, phone_number_id: str = None
             if len(display_results) == 1:
                 response = intro_message
             else:
-                if session["language"] == "es":
-                    response = f"{intro_message}\n\n{results_list}\n\nMándame el número del que te guste"
-                else:
-                    response = f"{intro_message}\n\n{results_list}\n\nSend me the number of the one you like"
+                response = f"{intro_message}\n\n{results_list}\n\nMándame el número del que te guste"
                 
                 if not session.get("user_location"):
-                    if session["language"] == "es":
-                        response += " o mándame tu ubicación para ver qué hay cerca 📍"
-                    else:
-                        response += " or send your location to see what's nearby 📍"
+                    response += " o mándame tu ubicación para ver qué hay cerca 📍"
             
             await send_whatsapp_message(wa_id, response)
         else:
-            if session["language"] == "es":
-                if session.get("user_location"):
-                    response = f"Ay no, no encontré {craving} cerca de ti 😕 ¿Tienes ganas de algo más?"
-                else:
-                    response = f"No tengo {craving} en mi lista. ¿Qué tal otra cosa o me mandas tu ubicación?"
+            if session.get("user_location"):
+                response = f"Ay no, no encontré {craving} cerca de ti 😕 ¿Tienes ganas de algo más?"
             else:
-                if session.get("user_location"):
-                    response = f"Damn, couldn't find {craving} near you 😕 Want something else?"
-                else:
-                    response = f"Don't have {craving} on my list. How about something else or send your location?"
+                response = f"No tengo {craving} en mi lista. ¿Qué tal otra cosa o me mandas tu ubicación?"
             
             await send_whatsapp_message(wa_id, response)
         return
     
     # OTROS CASOS
     elif intent == "other":
-        if session["language"] == "es":
-            response = "Oye, cuéntame qué se te antoja comer y te ayudo a encontrar algo bueno por ahí 😊"
-        else:
-            response = "Hey, tell me what you're craving and I'll help you find something good 😊"
-        
+        response = "Oye, cuéntame qué se te antoja comer y te ayudo a encontrar algo bueno por ahí 😊"
         await send_whatsapp_message(wa_id, response)
     
     else:
-        if session["language"] == "es":
-            response = "¿En qué te puedo echar la mano? Dime qué comida tienes ganas de probar 🍽️"
-        else:
-            response = "How can I help you out? Tell me what food you're in the mood for 🍽️"
-        
+        response = "¿En qué te puedo echar la mano? Dime qué comida tienes ganas de probar 🍽️"
         await send_whatsapp_message(wa_id, response)
 
 
@@ -2027,18 +1885,11 @@ async def handle_location_message(wa_id: str, lat: float, lng: float, phone_numb
             if len(display_results) == 1:
                 response = intro_message
             else:
-                if session["language"] == "es":
-                    response = f"{intro_message}\n\n{results_list}\n\nMándame el número del que te guste 📍"
-                else:
-                    response = f"{intro_message}\n\n{results_list}\n\nSend me the number you want 📍"
+                response = f"{intro_message}\n\n{results_list}\n\nMándame el número del que te guste 📍"
 
             await send_whatsapp_message(wa_id, response, phone_number_id)
         else:
-            if session["language"] == "es":
-                response = f"No encontré {craving} cerca de ti 😕 ¿Qué tal si probamos con otra cosa?"
-            else:
-                response = f"Couldn't find {craving} near you 😕 How about we try something else?"
-
+            response = f"No encontré {craving} cerca de ti 😕 ¿Qué tal si probamos con otra cosa?"
             await send_whatsapp_message(wa_id, response, phone_number_id)
 
         return
