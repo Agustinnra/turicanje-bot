@@ -1247,16 +1247,6 @@ async def search_places_with_location_ai(craving: str, user_lat: float, user_lng
     except Exception as e:
         print(f"[DB-SEARCH] Error con expansión y ubicación: {e}")
         return [], False
-                    place["distance_text"] = ""
-                
-                results.append(place)
-            
-            print(f"[DB-SEARCH] Con IA y ubicación: {len(results)} resultados")
-            return results
-            
-    except Exception as e:
-        print(f"[DB-SEARCH] Error con IA y ubicación: {e}")
-        return []
 
 def format_results_list(results: List[Dict[str, Any]], language: str) -> str:
     """Lista estilizada con información completa del negocio incluyendo horarios. SIEMPRE EN ESPAÑOL."""
