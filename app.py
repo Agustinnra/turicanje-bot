@@ -1800,7 +1800,42 @@ async def handle_text_message(wa_id: str, text: str, phone_number_id: str = None
     config = get_environment_config(phone_number_id) if phone_number_id else {"prefix": ""}
     print(f"{config.get('prefix', '')} [TEXT] {wa_id}: {text}")
     
-    # ✅ Detectar si el mensaje NO está en español
+    # ✅ PRIMERO: Detectar saludos comunes en inglés y otros idiomas
+    text_lower = text.lower().strip()
+    non_spanish_greetings = [
+        # Inglés
+        'hi', 'hii', 'hiii', 'hello', 'helo', 'hey', 'heya', 
+        'good morning', 'good afternoon', 'good evening', 'good night',
+        'greetings', 'howdy', 'hiya', 'sup', 'yo',
+        # Francés
+        'bonjour', 'salut', 'bonsoir', 'coucou',
+        # Italiano
+        'ciao', 'buongiorno', 'buonasera', 'salve',
+        # Alemán
+        'hallo', 'guten tag', 'guten morgen', 'guten abend',
+        # Portugués
+        'oi', 'olá', 'ola', 'bom dia', 'boa tarde', 'boa noite',
+        # Otros
+        'namaste', 'shalom', 'aloha', 'konnichiwa'
+    ]
+    
+    # Verificar si es un saludo en otro idioma
+    is_non_spanish_greeting = (
+        text_lower in non_spanish_greetings or
+        any(text_lower.startswith(greeting + ' ') or text_lower.startswith(greeting + ',') 
+            for greeting in non_spanish_greetings)
+    )
+    
+    if is_non_spanish_greeting:
+        print(f"[LANG-DETECT] Saludo en otro idioma detectado: '{text}'")
+        spanish_invitation = (
+            "Hi! 👋 Please write in Spanish so I can help you better. Thanks! 😊\n\n"
+            "Hola! 👋 Por favor escribe en español para poder ayudarte mejor. ¡Gracias! 😊"
+        )
+        await send_whatsapp_message(wa_id, spanish_invitation, phone_number_id)
+        return
+    
+    # ✅ SEGUNDO: Detectar si el mensaje NO está en español
     if not is_spanish(text):
         print(f"[LANG-DETECT] Mensaje no está en español, invitando a escribir en español")
         spanish_invitation = (
