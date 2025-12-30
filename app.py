@@ -1,4 +1,5 @@
 import os
+import uuid
 import json
 import hmac
 import hashlib
@@ -18,8 +19,17 @@ import psycopg
 from psycopg_pool import ConnectionPool
 from dotenv import load_dotenv
 
-from datetime import datetime
-import pytz
+# ===== ANALYTICS =====
+from analytics_functions import (
+    is_excluded_user,
+    log_search,
+    log_click,
+    log_session_start,
+    log_location_shared,
+    log_pagination,
+    log_goodbye_sent,
+    update_unique_user
+)
 
 DAY_MAP = {
     0: ("mon_open", "mon_close"),
@@ -740,6 +750,7 @@ def get_or_create_user_session(wa_id: str) -> Dict[str, Any]:
     
     name = get_random_name()  # ✅ Siempre usa nombres en español
     session = {
+        "session_id": str(uuid.uuid4()),
         "name": name,
         "language": "es",  # ✅ SIEMPRE ESPAÑOL
         "last_seen": current_time,
@@ -757,7 +768,18 @@ def get_or_create_user_session(wa_id: str) -> Dict[str, Any]:
     }
     user_sessions[wa_id] = session
     print(f"[SESSION] Nueva sesión: {wa_id} -> {name} (es)")
+    
+    # ✅ ANALYTICS: Log session start
+    import asyncio
+    try:
+        is_new = True
+        asyncio.create_task(update_unique_user(wa_id, get_pool()))
+        asyncio.create_task(log_session_start(wa_id, session["session_id"], is_new, get_pool()))
+    except Exception as e:
+        print(f"[ANALYTICS] Error logging session start: {e}")
+    
     return session
+
 
 # ================= FASE 5: MENSAJES DE DESPEDIDA Y TIMEOUTS =================
 
@@ -800,6 +822,18 @@ async def send_goodbye_message(wa_id: str, session: dict):
         
         # Enviar vía WhatsApp
         await send_whatsapp_message(wa_id, message)
+        
+        # ✅ ANALYTICS: Log goodbye sent
+        try:
+            import asyncio
+            asyncio.create_task(log_goodbye_sent(
+                wa_id=wa_id,
+                session_id=session.get("session_id", "unknown"),
+                clicked_link=clicked_link,
+                pool=get_pool()
+            ))
+        except Exception as e:
+            print(f"[ANALYTICS] Error logging goodbye: {e}")
         
         print(f"[GOODBYE] Mensaje de despedida enviado a {wa_id}")
         
@@ -2170,6 +2204,27 @@ async def handle_text_message(wa_id: str, text: str, phone_number_id: str = None
                 session["clicked_link"] = True
                 session["shown_count"] = session.get("shown_count", 0) + 1
                 
+                # ✅ ANALYTICS: Log click
+                try:
+                    import asyncio
+                    asyncio.create_task(log_click(
+                        wa_id=wa_id,
+                        session_id=session["session_id"],
+                        search_craving=session.get("last_search", {}).get("craving", "unknown"),
+                        place_id=selected_place.get("id", "unknown"),
+                        place_name=selected_place.get("name", "unknown"),
+                        place_category=selected_place.get("category", "unknown"),
+                        has_cashback=bool(selected_place.get("cashback")),
+                        is_affiliate=bool(selected_place.get("afiliado")),
+                        has_delivery=bool(selected_place.get("delivery")),
+                        result_position=selected_number,
+                        distance_meters=selected_place.get("distance_meters"),
+                        was_open=selected_place.get("is_open_now", False),
+                        pool=get_pool()
+                    ))
+                except Exception as e:
+                    print(f"[ANALYTICS] Error logging click: {e}")
+                
                 details = format_place_details(selected_place, session["language"])
                 await send_whatsapp_message(wa_id, details, phone_number_id)
 
@@ -2201,6 +2256,26 @@ async def handle_text_message(wa_id: str, text: str, phone_number_id: str = None
         # Limitar a 3 para mostrar en primera página (PAGINATION_SIZE)
         display_results = results[:PAGINATION_SIZE]
         print(f"[DEBUG] FINAL: {len(display_results)} resultados enviados de {len(results)} encontrados")
+        
+        # ✅ ANALYTICS: Log search
+        try:
+            import asyncio
+            asyncio.create_task(log_search(
+                wa_id=wa_id,
+                session_id=session["session_id"],
+                craving=craving,
+                had_location=bool(session.get("user_location")),
+                user_lat=session.get("user_location", {}).get("lat") if session.get("user_location") else None,
+                user_lng=session.get("user_location", {}).get("lng") if session.get("user_location") else None,
+                results_count=len(results),
+                shown_count=len(display_results),
+                used_expansion=used_expansion,
+                expanded_terms=[craving],
+                db_query_time_ms=0,
+                pool=get_pool()
+            ))
+        except Exception as e:
+            print(f"[ANALYTICS] Error logging search: {e}")
         
         if display_results:
             # ✅ FASE 5: Guardar TODOS los resultados para paginación
@@ -2256,6 +2331,26 @@ async def handle_text_message(wa_id: str, text: str, phone_number_id: str = None
         # Limitar a 3 para primera página
         display_results = results[:PAGINATION_SIZE]
         print(f"[DEBUG REGULAR] FINAL: {len(display_results)} resultados enviados de {len(results)} encontrados")
+        
+        # ✅ ANALYTICS: Log search
+        try:
+            import asyncio
+            asyncio.create_task(log_search(
+                wa_id=wa_id,
+                session_id=session["session_id"],
+                craving=craving,
+                had_location=bool(session.get("user_location")),
+                user_lat=session.get("user_location", {}).get("lat") if session.get("user_location") else None,
+                user_lng=session.get("user_location", {}).get("lng") if session.get("user_location") else None,
+                results_count=len(results),
+                shown_count=len(display_results),
+                used_expansion=used_expansion,
+                expanded_terms=[craving],
+                db_query_time_ms=0,
+                pool=get_pool()
+            ))
+        except Exception as e:
+            print(f"[ANALYTICS] Error logging search: {e}")
         
         if display_results:
             # ✅ FASE 5: Guardar TODOS los resultados para paginación
@@ -2327,6 +2422,19 @@ async def handle_text_message(wa_id: str, text: str, phone_number_id: str = None
         session["last_search"]["shown_count"] = shown_count + len(next_batch)
         session["shown_count"] += len(next_batch)
         
+        # ✅ ANALYTICS: Log pagination
+        try:
+            import asyncio
+            asyncio.create_task(log_pagination(
+                wa_id=wa_id,
+                session_id=session["session_id"],
+                page_number=shown_count // PAGINATION_SIZE + 1,
+                search_craving=last_search.get("craving", "unknown"),
+                pool=get_pool()
+            ))
+        except Exception as e:
+            print(f"[ANALYTICS] Error logging pagination: {e}")
+        
         # Formatear resultados con índice correcto
         results_list = format_results_list_with_offset(next_batch, shown_count, session["language"])
         
@@ -2372,6 +2480,19 @@ async def handle_location_message(wa_id: str, lat: float, lng: float, phone_numb
     session["user_location"] = {"lat": lat, "lng": lng}
     session["last_seen"] = time.time()
     
+    # ✅ ANALYTICS: Log location shared
+    try:
+        import asyncio
+        asyncio.create_task(log_location_shared(
+            wa_id=wa_id,
+            session_id=session["session_id"],
+            lat=lat,
+            lng=lng,
+            pool=get_pool()
+        ))
+    except Exception as e:
+        print(f"[ANALYTICS] Error logging location: {e}")
+    
     if session.get("last_search") and session["last_search"].get("craving"):
         craving = session["last_search"]["craving"]
         results, used_expansion = await search_places_with_location_ai(craving, lat, lng, session["language"], wa_id, 10)
@@ -2379,6 +2500,26 @@ async def handle_location_message(wa_id: str, lat: float, lng: float, phone_numb
         # Limitar a 3 para primera página
         display_results = results[:PAGINATION_SIZE]
         print(f"[DEBUG UBICACIÓN] FINAL: {len(display_results)} resultados enviados de {len(results)} encontrados")
+
+        # ✅ ANALYTICS: Log search with location
+        try:
+            import asyncio
+            asyncio.create_task(log_search(
+                wa_id=wa_id,
+                session_id=session["session_id"],
+                craving=craving,
+                had_location=True,
+                user_lat=lat,
+                user_lng=lng,
+                results_count=len(results),
+                shown_count=len(display_results),
+                used_expansion=used_expansion,
+                expanded_terms=[craving],
+                db_query_time_ms=0,
+                pool=get_pool()
+            ))
+        except Exception as e:
+            print(f"[ANALYTICS] Error logging search: {e}")
 
         if display_results:
             # ✅ FASE 5: Guardar TODOS los resultados
