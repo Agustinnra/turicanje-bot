@@ -81,17 +81,20 @@ async def save_raw_event(
     try:
         now = datetime.now(TZ)
         
-        async with pool.connection() as conn:
+        conn = await pool.getconn()
+        try:
             await conn.execute(
                 """
                 INSERT INTO conversation_raw (event_type, wa_id, session_id, timestamp, raw_data)
                 VALUES ($1, $2, $3, $4, $5)
                 """,
-                [event_type, wa_id, session_id, now, json.dumps(data)]
+                (event_type, wa_id, session_id, now, json.dumps(data))
             )
-        
-        print(f"[ANALYTICS] ✅ RAW guardado: {event_type} | {wa_id}")
-        return True
+            await conn.commit()
+            print(f"[ANALYTICS] ✅ RAW guardado: {event_type} | {wa_id}")
+            return True
+        finally:
+            await pool.putconn(conn)
         
     except Exception as e:
         print(f"[ANALYTICS] ❌ Error guardando RAW: {e}")
@@ -121,7 +124,8 @@ async def increment_metric(
         bool: True si se actualizó exitosamente
     """
     try:
-        async with pool.connection() as conn:
+        conn = await pool.getconn()
+        try:
             # Upsert: insert o update si ya existe
             await conn.execute(
                 f"""
@@ -132,11 +136,13 @@ async def increment_metric(
                     {metric} = analytics_dashboard.{metric} + EXCLUDED.{metric},
                     updated_at = NOW()
                 """,
-                [date, value]
+                (date, value)
             )
-        
-        print(f"[ANALYTICS] ✅ Métrica incrementada: {metric} +{value} ({date})")
-        return True
+            await conn.commit()
+            print(f"[ANALYTICS] ✅ Métrica incrementada: {metric} +{value} ({date})")
+            return True
+        finally:
+            await pool.putconn(conn)
         
     except Exception as e:
         print(f"[ANALYTICS] ❌ Error incrementando métrica: {e}")
@@ -168,11 +174,12 @@ async def update_unique_user(
     try:
         now = datetime.now(TZ)
         
-        async with pool.connection() as conn:
+        conn = await pool.getconn()
+        try:
             # Verificar si existe
             result = await conn.execute(
                 "SELECT wa_id FROM users_unique WHERE wa_id = $1",
-                [wa_id]
+                (wa_id,)
             )
             row = await result.fetchone()
             
@@ -185,17 +192,20 @@ async def update_unique_user(
                     INSERT INTO users_unique (wa_id, first_seen, last_seen)
                     VALUES ($1, $2, $3)
                     """,
-                    [wa_id, now, now]
+                    (wa_id, now, now)
                 )
                 print(f"[ANALYTICS] 🆕 Nuevo usuario: {wa_id}")
             else:
                 # Actualizar last_seen
                 await conn.execute(
                     "UPDATE users_unique SET last_seen = $1 WHERE wa_id = $2",
-                    [now, wa_id]
+                    (now, wa_id)
                 )
             
+            await conn.commit()
             return is_new_user
+        finally:
+            await pool.putconn(conn)
             
     except Exception as e:
         print(f"[ANALYTICS] ❌ Error actualizando usuario único: {e}")
@@ -538,14 +548,17 @@ async def calculate_daily_metrics(date: str, pool: ConnectionPool) -> bool:
     Se ejecuta al final del día o bajo demanda.
     """
     try:
-        async with pool.connection() as conn:
+        conn = await pool.getconn()
+        try:
             await conn.execute(
                 "SELECT calculate_daily_metrics($1)",
-                [date]
+                (date,)
             )
-        
-        print(f"[ANALYTICS] ✅ Métricas calculadas para: {date}")
-        return True
+            await conn.commit()
+            print(f"[ANALYTICS] ✅ Métricas calculadas para: {date}")
+            return True
+        finally:
+            await pool.putconn(conn)
         
     except Exception as e:
         print(f"[ANALYTICS] ❌ Error calculando métricas: {e}")
