@@ -1079,8 +1079,6 @@ async def search_places_without_location_ai(craving: str, language: str, wa_id: 
         # Crear parámetros dinámicos para cada término
         params = {f"pattern_{i}": f"%{term}%" for i, term in enumerate(expanded_terms)}
         params["limit"] = limit
-            "limit": limit
-        }
         
         print(f"[DB-SEARCH] Buscando con expansión: {expanded_terms}")
         
@@ -1261,7 +1259,7 @@ async def search_places_with_location_ai(craving: str, user_lat: float, user_lng
             "user_lat": user_lat,
             "user_lng": user_lng,
             "limit": limit
-        }
+        })
         
         print(f"[DB-SEARCH] Buscando con expansión y ubicación: {expanded_terms}")
         
