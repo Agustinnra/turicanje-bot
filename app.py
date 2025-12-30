@@ -777,24 +777,23 @@ def get_time_greeting() -> str:
 async def send_goodbye_message(wa_id: str, session: dict):
     """Envía mensaje de despedida automático después de timeout"""
     try:
-        name = session.get("name", "")
         time_greeting = get_time_greeting()
         clicked_link = session.get("clicked_link", False)
         
         # Mensaje diferente si hizo click en algún link
         if clicked_link:
             messages = [
-                f"¡Disfruta tu comida, {name}! 🍽️\n\nCuéntame cómo te fue cuando regreses 😊\n\n✨ Dale like a nuestra página: {FACEBOOK_PAGE_URL}\n📲 Comparte con tus amigos: wa.me/5215522545216\n\n¡Que tengas {time_greeting}!\n- Turicanje",
+                f"¡Disfruta tu comida! 🍽️\n\nCuéntame cómo te fue cuando regreses.\n\n━━━━━━━━━━━━━━━━━━━\n💙 Like en Facebook:\n{FACEBOOK_PAGE_URL}\n\n📲 Comparte Turicanje:\nwa.me/5215522545216\n━━━━━━━━━━━━━━━━━━━\n\n¡Que tengas {time_greeting}!\n- Turicanje",
                 
-                f"¡Buen provecho, {name}! ✨\n\nEspero que disfrutes mucho tu comida.\n\n💙 Síguenos en Facebook: {FACEBOOK_PAGE_URL}\n🎉 Comparte con quien amas: wa.me/5215522545216\n\n¡{time_greeting.capitalize()}!\n- Turicanje"
+                f"¡Buen provecho! ✨\n\nEspero que disfrutes mucho.\n\n━━━━━━━━━━━━━━━━━━━\n💙 Síguenos en Facebook:\n{FACEBOOK_PAGE_URL}\n\n📲 Comparte con tus amigos:\nwa.me/5215522545216\n━━━━━━━━━━━━━━━━━━━\n\n¡{time_greeting.capitalize()}!\n- Turicanje"
             ]
         else:
             messages = [
-                f"Espero que nuestra plática te haya ayudado, {name}! 😊\n\nCualquier cosa que necesites, escríbeme de nuevo.\n\n💙 Dale like en Facebook: {FACEBOOK_PAGE_URL}\n📲 Comparte con tus amigos: wa.me/5215522545216\n\n¡Que tengas {time_greeting}! 🍽️\n- Turicanje",
+                f"Espero que nuestra plática te haya ayudado 😊\n\nCualquier cosa que necesites, escríbeme de nuevo.\n\n━━━━━━━━━━━━━━━━━━━\n💙 Like en Facebook:\n{FACEBOOK_PAGE_URL}\n\n📲 Comparte Turicanje:\nwa.me/5215522545216\n━━━━━━━━━━━━━━━━━━━\n\n¡Que tengas {time_greeting}! 🍽️\n- Turicanje",
                 
-                f"Fue un gusto ayudarte, {name}! ✨\n\nSi se te antoja algo más, ya sabes dónde encontrarme.\n\n✨ Síguenos: {FACEBOOK_PAGE_URL}\n🎉 Recomiéndanos: wa.me/5215522545216\n\n¡{time_greeting.capitalize()}! 😊\n- Turicanje",
+                f"Fue un gusto ayudarte ✨\n\nSi se te antoja algo más, ya sabes dónde encontrarme.\n\n━━━━━━━━━━━━━━━━━━━\n💙 Síguenos:\n{FACEBOOK_PAGE_URL}\n\n📲 Recomiéndanos:\nwa.me/5215522545216\n━━━━━━━━━━━━━━━━━━━\n\n¡{time_greeting.capitalize()}!\n- Turicanje",
                 
-                f"¡Listo, {name}! Espero haberte ayudado 🙌\n\nCuando quieras descubrir más lugares, aquí estaré.\n\n💙 Like en Facebook: {FACEBOOK_PAGE_URL}\n📲 Comparte Turicanje: wa.me/5215522545216\n\n¡Que tengas {time_greeting}! 🎉\n- Turicanje"
+                f"¡Listo! Espero haberte ayudado 🙌\n\nCuando quieras descubrir más lugares, aquí estaré.\n\n━━━━━━━━━━━━━━━━━━━\n💙 Like en Facebook:\n{FACEBOOK_PAGE_URL}\n\n📲 Comparte Turicanje:\nwa.me/5215522545216\n━━━━━━━━━━━━━━━━━━━\n\n¡Que tengas {time_greeting}!\n- Turicanje"
             ]
         
         message = random.choice(messages)
@@ -2092,7 +2091,18 @@ async def handle_text_message(wa_id: str, text: str, phone_number_id: str = None
     session["message_count"] = session.get("message_count", 0) + 1
     session["goodbye_sent"] = False  # Resetear si el usuario volvió a escribir
     
-    intent_data = await extract_intent_with_ai(text, session["language"], session["name"], wa_id)
+    # ✅ FASE 5: DETECCIÓN HARDCODED de "más" para paginación (bypass IA)
+    text_stripped = text.strip().lower()
+    if text_stripped in ['más', 'mas', 'dame más', 'dame mas', 'ver más', 'ver mas', 'siguiente', 'otra', 'otras']:
+        intent_data = {"intent": "more_options", "craving": None, "needs_location": False, "business_name": None}
+        print(f"[HARDCODED] Detectado paginación: '{text}' → more_options")
+    elif text_stripped in ['no', 'ya no', 'ya', 'suficiente', 'no más', 'no mas', 'está bien', 'esta bien']:
+        intent_data = {"intent": "no_more_options", "craving": None, "needs_location": False, "business_name": None}
+        print(f"[HARDCODED] Detectado rechazo: '{text}' → no_more_options")
+    else:
+        # Si no es paginación, usar IA normal
+        intent_data = await extract_intent_with_ai(text, session["language"], session["name"], wa_id)
+    
     intent = intent_data.get("intent", "other")
     craving = intent_data.get("craving")
     needs_location = intent_data.get("needs_location", False)
