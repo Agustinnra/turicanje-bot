@@ -277,7 +277,7 @@ SESSION_RESET_TIMEOUT = int(os.getenv("SESSION_RESET_TIMEOUT", "600"))  # 10 min
 PAGINATION_SIZE = 3  # Cuántos resultados mostrar por página
 
 # ✅ FASE 5: URLs de redes sociales
-FACEBOOK_PAGE_URL = "https://www.facebook.com/turicanje"
+FACEBOOK_PAGE_URL = "https://www.facebook.com/turicanjeapp"
 INSTAGRAM_URL = "https://www.instagram.com/turicanje"
 
 # Configuración DUAL (DEV + PROD)
@@ -2301,7 +2301,11 @@ async def handle_text_message(wa_id: str, text: str, phone_number_id: str = None
             remaining = len(results) - len(display_results)
             
             # ✅ SIEMPRE mostrar la lista, incluso si hay solo 1 resultado
-            response = f"¡Hola! {intro_message}\n\n{results_list}\n\nEscribe el número del que te llame la atención"
+            # Mensaje diferente si solo hay 1 resultado vs múltiples
+            if len(display_results) == 1:
+                response = f"¡Hola! {intro_message}\n\n{results_list}\n\n¿Te interesa? Si quieres buscar algo más, solo dime 😊"
+            else:
+                response = f"¡Hola! {intro_message}\n\n{results_list}\n\nEscribe el número del que te llame la atención"
             
             # ✅ MEJORADO: Pedir ubicación Y mencionar más opciones si las hay
             if not session.get("user_location"):
@@ -2376,7 +2380,11 @@ async def handle_text_message(wa_id: str, text: str, phone_number_id: str = None
             remaining = len(results) - len(display_results)
             
             # ✅ SIEMPRE mostrar la lista, incluso si hay solo 1 resultado
-            response = f"{intro_message}\n\n{results_list}\n\nMándame el número del que te guste"
+            # Mensaje diferente si solo hay 1 resultado vs múltiples
+            if len(display_results) == 1:
+                response = f"{intro_message}\n\n{results_list}\n\n¿Te interesa? Si quieres buscar algo más, solo dime 😊"
+            else:
+                response = f"{intro_message}\n\n{results_list}\n\nMándame el número del que te guste"
             
             # ✅ MEJORADO: Pedir ubicación Y mencionar más opciones
             if not session.get("user_location"):
@@ -2541,7 +2549,11 @@ async def handle_location_message(wa_id: str, lat: float, lng: float, phone_numb
             results_list = format_results_list(display_results, session["language"])
 
             # ✅ SIEMPRE mostrar la lista, incluso si hay solo 1 resultado
-            response = f"{intro_message}\n\n{results_list}\n\nMándame el número del que te guste 📍"
+            # Mensaje diferente si solo hay 1 resultado vs múltiples
+            if len(display_results) == 1:
+                response = f"{intro_message}\n\n{results_list}\n\n¿Te interesa? Si quieres buscar algo más, solo dime 😊 📍"
+            else:
+                response = f"{intro_message}\n\n{results_list}\n\nMándame el número del que te guste 📍"
             
             # ✅ FASE 5: Avisar si hay más opciones
             remaining = len(results) - len(display_results)
