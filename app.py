@@ -1281,7 +1281,11 @@ def format_results_list(results: List[Dict[str, Any]], language: str) -> str:
                 title += f" ({hours_info})"
 
         block = [title]
-        block.append(f"🚚 Servicio a domicilio: {'Sí ✅' if has_delivery else 'No ❌'}")
+        
+        # ✅ FASE 1 - CAMBIO 2: Solo mostrar delivery si tiene
+        if has_delivery:
+            block.append(f"🛵 Servicio a domicilio ✅")
+        
         block.append(f"💳 Acumula cashback: {'Sí 💰' if cashback else 'No'}")
 
         if distance:
@@ -1799,7 +1803,10 @@ async def handle_text_message(wa_id: str, text: str, phone_number_id: str = None
     # ✅ Detectar si el mensaje NO está en español
     if not is_spanish(text):
         print(f"[LANG-DETECT] Mensaje no está en español, invitando a escribir en español")
-        spanish_invitation = "Hola! 👋 Por favor escribe en español para poder ayudarte mejor. ¡Gracias! 😊"
+        spanish_invitation = (
+            "Hi! 👋 Please write in Spanish so I can help you better. Thanks! 😊\n\n"
+            "Hola! 👋 Por favor escribe en español para poder ayudarte mejor. ¡Gracias! 😊"
+        )
         await send_whatsapp_message(wa_id, spanish_invitation, phone_number_id)
         return
     
