@@ -984,22 +984,19 @@ def search_places_without_location(craving: str, limit: int = 10) -> List[Dict[s
         FROM public.places 
         WHERE EXISTS (
             SELECT 1 FROM jsonb_array_elements_text(categories) as item
-            WHERE LOWER(item) LIKE %(search_pattern)s
+            WHERE LOWER(item) LIKE %s
         )
         AND {today_filter}
         ORDER BY 
             (SELECT COUNT(*) FROM jsonb_array_elements_text(categories) as item
-             WHERE LOWER(item) LIKE %(search_pattern)s) DESC,
+             WHERE LOWER(item) LIKE %s) DESC,
             CASE WHEN afiliado = true THEN 1 ELSE 0 END DESC,
             priority DESC,
             id ASC
-        LIMIT %(limit)s;
+        LIMIT %s;
         """
         
-        params = {
-            "search_pattern": search_pattern,
-            "limit": limit
-        }
+        params = (search_pattern, search_pattern, limit)
         
         print(f"[DB-SEARCH] FASE 4: Buscando '{craving}' en categories (SEO interno)")
         
@@ -1130,18 +1127,18 @@ def search_places_with_location(craving: str, user_lat: float, user_lng: float, 
                    CASE 
                        WHEN lat IS NOT NULL AND lng IS NOT NULL THEN
                            6371000 * 2 * ASIN(SQRT(
-                               POWER(SIN(RADIANS((lat - %(user_lat)s) / 2)), 2) +
-                               COS(RADIANS(%(user_lat)s)) * COS(RADIANS(lat)) *
-                               POWER(SIN(RADIANS((lng - %(user_lng)s) / 2)), 2)
+                               POWER(SIN(RADIANS((lat - %s) / 2)), 2) +
+                               COS(RADIANS(%s)) * COS(RADIANS(lat)) *
+                               POWER(SIN(RADIANS((lng - %s) / 2)), 2)
                            ))
                        ELSE 999999
                    END as distance_meters,
                    (SELECT COUNT(*) FROM jsonb_array_elements_text(categories) as item
-                    WHERE LOWER(item) LIKE %(search_pattern)s) as product_match_score
+                    WHERE LOWER(item) LIKE %s) as product_match_score
             FROM public.places 
             WHERE EXISTS (
                 SELECT 1 FROM jsonb_array_elements_text(categories) as item
-                WHERE LOWER(item) LIKE %(search_pattern)s
+                WHERE LOWER(item) LIKE %s
             )
             AND {today_filter}
         )
@@ -1151,15 +1148,10 @@ def search_places_with_location(craving: str, user_lat: float, user_lng: float, 
             CASE WHEN afiliado = true THEN 1 ELSE 0 END DESC,
             priority DESC,
             distance_meters ASC
-        LIMIT %(limit)s;
+        LIMIT %s;
         """
         
-        params = {
-            "search_pattern": search_pattern,
-            "user_lat": user_lat,
-            "user_lng": user_lng,
-            "limit": limit
-        }
+        params = (user_lat, user_lat, user_lng, search_pattern, search_pattern, limit)
         
         print(f"[DB-SEARCH] FASE 4 CON UBICACIÓN: Buscando '{craving}' en categories (SEO interno)")
         
