@@ -31,6 +31,23 @@ DAY_MAP = {
     6: ("sun_open", "sun_close"),
 }
 
+def get_today_hours_filter() -> str:
+    """
+    Retorna la condición SQL para filtrar lugares que tengan horarios HOY.
+    Ejemplo: Si hoy es lunes → "mon_open IS NOT NULL AND mon_close IS NOT NULL"
+    """
+    import datetime
+    import pytz
+    
+    # Obtener día actual en México (timezone por defecto)
+    tz = pytz.timezone("America/Mexico_City")
+    now = datetime.datetime.now(tz)
+    weekday = now.weekday()  # 0=lunes, 6=domingo
+    
+    open_col, close_col = DAY_MAP[weekday]
+    
+    return f"{open_col} IS NOT NULL AND {close_col} IS NOT NULL"
+
 def is_open_now_by_day(place: dict) -> bool:
     """
     Determina si un lugar está abierto AHORA usando las columnas individuales de horarios.
@@ -936,12 +953,16 @@ def search_place_by_name(business_name: str) -> Optional[Dict[str, Any]]:
         return None
 
 def search_places_without_location(craving: str, limit: int = 10) -> List[Dict[str, Any]]:
-    """NUEVO ORDEN: producto -> afiliado -> prioridad -> id"""
+    """NUEVO ORDEN: producto -> afiliado -> prioridad -> id
+    FASE 2: Solo muestra lugares con horarios del día actual"""
     if not craving:
         return []
     
+    # ✅ FASE 2: Obtener filtro de horarios del día
+    today_filter = get_today_hours_filter()
+    
     try:
-        sql = """
+        sql = f"""
         SELECT id, name, category, products, priority, cashback, hours, 
                address, phone, url_order, imagen_url, url_extra, afiliado,
                lat, lng, timezone, delivery,
@@ -953,6 +974,7 @@ def search_places_without_location(craving: str, limit: int = 10) -> List[Dict[s
             SELECT 1 FROM jsonb_array_elements_text(products) as item
             WHERE LOWER(item) LIKE ANY(%(search_patterns)s)
         )
+        AND {today_filter}
         ORDER BY 
             (SELECT COUNT(*) FROM jsonb_array_elements_text(products) as item
              WHERE LOWER(item) LIKE ANY(%(search_patterns)s)) DESC,
@@ -1016,8 +1038,11 @@ async def search_places_without_location_ai(craving: str, language: str, wa_id: 
     print(f"[DB-SEARCH] ETAPA 2: No encontró exacto, expandiendo con IA...")
     expanded_terms = await expand_search_terms_with_ai(craving, language, wa_id)
     
+    # ✅ FASE 2: Obtener filtro de horarios del día
+    today_filter = get_today_hours_filter()
+    
     try:
-        sql = """
+        sql = f"""
         SELECT id, name, category, products, priority, cashback, hours, 
                address, phone, url_order, imagen_url, url_extra, afiliado,
                lat, lng, timezone, delivery,
@@ -1029,6 +1054,7 @@ async def search_places_without_location_ai(craving: str, language: str, wa_id: 
             SELECT 1 FROM jsonb_array_elements_text(products) as item
             WHERE LOWER(item) LIKE ANY(%(search_patterns)s)
         )
+        AND {today_filter}
         ORDER BY 
             (SELECT COUNT(*) FROM jsonb_array_elements_text(products) as item
              WHERE LOWER(item) LIKE ANY(%(search_patterns)s)) DESC,
@@ -1073,12 +1099,16 @@ async def search_places_without_location_ai(craving: str, language: str, wa_id: 
         return []
 
 def search_places_with_location(craving: str, user_lat: float, user_lng: float, limit: int = 10) -> List[Dict[str, Any]]:
-    """NUEVO ORDEN: producto -> afiliado -> prioridad -> distancia"""
+    """NUEVO ORDEN: producto -> afiliado -> prioridad -> distancia
+    FASE 2: Solo muestra lugares con horarios del día actual"""
     if not craving:
         return []
     
+    # ✅ FASE 2: Obtener filtro de horarios del día
+    today_filter = get_today_hours_filter()
+    
     try:
-        sql = """
+        sql = f"""
         WITH distances AS (
             SELECT id, name, category, products, priority, cashback, hours,
                    address, phone, url_order, imagen_url, url_extra, afiliado,
@@ -1102,6 +1132,7 @@ def search_places_with_location(craving: str, user_lat: float, user_lng: float, 
                 SELECT 1 FROM jsonb_array_elements_text(products) as item
                 WHERE LOWER(item) LIKE ANY(%(search_patterns)s)
             )
+            AND {today_filter}
         )
         SELECT * FROM distances
         ORDER BY 
@@ -1172,8 +1203,11 @@ async def search_places_with_location_ai(craving: str, user_lat: float, user_lng
     print(f"[DB-SEARCH] ETAPA 2 (con ubicación): No encontró exacto, expandiendo con IA...")
     expanded_terms = await expand_search_terms_with_ai(craving, language, wa_id)
     
+    # ✅ FASE 2: Obtener filtro de horarios del día
+    today_filter = get_today_hours_filter()
+    
     try:
-        sql = """
+        sql = f"""
         WITH distances AS (
             SELECT id, name, category, products, priority, cashback, hours,
                    address, phone, url_order, imagen_url, url_extra, afiliado,
@@ -1197,6 +1231,7 @@ async def search_places_with_location_ai(craving: str, user_lat: float, user_lng
                 SELECT 1 FROM jsonb_array_elements_text(products) as item
                 WHERE LOWER(item) LIKE ANY(%(search_patterns)s)
             )
+            AND {today_filter}
         )
         SELECT * FROM distances
         ORDER BY 
@@ -1268,10 +1303,9 @@ def format_results_list(results: List[Dict[str, Any]], language: str) -> str:
         # ✅ NUEVO: Usar columnas individuales de horarios
         is_open, hours_info, has_hours = get_hours_status_from_columns(place)
 
-        # Determinar el título basado en el estado de horarios
-        if not has_hours:
-            title = f"📍 {idx}) {name} ⚪ HORARIO NO DISPONIBLE"
-        elif is_open:
+        # ✅ FASE 2: Determinar el título basado en el estado de horarios
+        # Ya no hay caso "HORARIO NO DISPONIBLE" porque filtramos en SQL
+        if is_open:
             title = f"📍 {idx}) {name} 🟢 ABIERTO"
             if hours_info:
                 title += f" ({hours_info})"
