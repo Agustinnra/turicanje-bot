@@ -783,17 +783,17 @@ async def send_goodbye_message(wa_id: str, session: dict):
         # Mensaje diferente si hizo click en algún link
         if clicked_link:
             messages = [
-                f"¡Disfruta tu comida! 🍽️\n\nCuéntame cómo te fue cuando regreses.\n\n━━━━━━━━━━━━━━━━━━━\n💙 Like en Facebook:\n{FACEBOOK_PAGE_URL}\n\n📲 Comparte Turicanje:\nwa.me/5215522545216\n━━━━━━━━━━━━━━━━━━━\n\n¡Que tengas {time_greeting}!\n- Turicanje",
+                f"🍽️ ¡Disfruta tu comida!\n\nCuéntame cómo te fue, me encantaría saber si te gustó.\n\n┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n\n¿Te ayudé a decidir?\n\n💙 Síguenos en Facebook\n{FACEBOOK_PAGE_URL}\n\n📱 Comparte este chat con tus amigos que nunca saben dónde comer 😄\nwa.me/5215522545216\n\n┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n\n¡Que tengas {time_greeting}! ✨",
                 
-                f"¡Buen provecho! ✨\n\nEspero que disfrutes mucho.\n\n━━━━━━━━━━━━━━━━━━━\n💙 Síguenos en Facebook:\n{FACEBOOK_PAGE_URL}\n\n📲 Comparte con tus amigos:\nwa.me/5215522545216\n━━━━━━━━━━━━━━━━━━━\n\n¡{time_greeting.capitalize()}!\n- Turicanje"
+                f"✨ ¡Buen provecho!\n\nEspero que lo disfrutes mucho.\n\n┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n\n¿Te gustó la recomendación?\n\n💙 Dale like en Facebook\n{FACEBOOK_PAGE_URL}\n\n📱 Ayuda a un amigo indeciso 😊\nwa.me/5215522545216\n\n┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n\n¡{time_greeting.capitalize()}! 🌟"
             ]
         else:
             messages = [
-                f"Espero que nuestra plática te haya ayudado 😊\n\nCualquier cosa que necesites, escríbeme de nuevo.\n\n━━━━━━━━━━━━━━━━━━━\n💙 Like en Facebook:\n{FACEBOOK_PAGE_URL}\n\n📲 Comparte Turicanje:\nwa.me/5215522545216\n━━━━━━━━━━━━━━━━━━━\n\n¡Que tengas {time_greeting}! 🍽️\n- Turicanje",
+                f"😊 Espero haberte ayudado a encontrar algo rico.\n\nAquí estaré cuando se te antoje algo nuevo.\n\n┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n\n💡 ¿Sabías que puedes preguntarme por cualquier antojo?\n\nTacos, sushi, pizza, desayunos... lo que sea 🍕🌮🍜\n\n💙 Síguenos en Facebook\n{FACEBOOK_PAGE_URL}\n\n📱 Comparte con amigos foodies\nwa.me/5215522545216\n\n┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n\n¡Que tengas {time_greeting}! 🌟",
                 
-                f"Fue un gusto ayudarte ✨\n\nSi se te antoja algo más, ya sabes dónde encontrarme.\n\n━━━━━━━━━━━━━━━━━━━\n💙 Síguenos:\n{FACEBOOK_PAGE_URL}\n\n📲 Recomiéndanos:\nwa.me/5215522545216\n━━━━━━━━━━━━━━━━━━━\n\n¡{time_greeting.capitalize()}!\n- Turicanje",
+                f"✨ Fue un gusto ayudarte.\n\nCuando no sepas qué comer, ya sabes dónde encontrarme.\n\n┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n\n🎯 Turicanje encuentra lugares increíbles que quizás no conocías.\n\n💙 Síguenos en Facebook\n{FACEBOOK_PAGE_URL}\n\n📱 Recomiéndame a quien siempre pregunta \"¿Dónde comemos?\" 😄\nwa.me/5215522545216\n\n┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n\n¡{time_greeting.capitalize()}! ✨",
                 
-                f"¡Listo! Espero haberte ayudado 🙌\n\nCuando quieras descubrir más lugares, aquí estaré.\n\n━━━━━━━━━━━━━━━━━━━\n💙 Like en Facebook:\n{FACEBOOK_PAGE_URL}\n\n📲 Comparte Turicanje:\nwa.me/5215522545216\n━━━━━━━━━━━━━━━━━━━\n\n¡Que tengas {time_greeting}!\n- Turicanje"
+                f"🙌 ¡Listo! Espero haberte ayudado.\n\nRegresa cuando quieras descubrir más lugares.\n\n┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n\n🌟 Descubre restaurantes, cafés, antojos...\nTodo en un chat, sin apps, sin complicaciones.\n\n💙 Dale like en Facebook\n{FACEBOOK_PAGE_URL}\n\n📱 Comparte con tu crew foodie 🍕\nwa.me/5215522545216\n\n┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n\n¡Que tengas {time_greeting}! 🌮"
             ]
         
         message = random.choice(messages)
