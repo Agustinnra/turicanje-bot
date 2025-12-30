@@ -971,6 +971,9 @@ def search_places_without_location(craving: str, limit: int = 10) -> List[Dict[s
     today_filter = get_today_hours_filter()
     
     try:
+        # Crear patrón de búsqueda
+        search_pattern = f"%{craving.lower()}%"
+        
         sql = f"""
         SELECT id, name, category, products, priority, cashback, hours, 
                address, phone, url_order, imagen_url, url_extra, afiliado,
@@ -981,23 +984,20 @@ def search_places_without_location(craving: str, limit: int = 10) -> List[Dict[s
         FROM public.places 
         WHERE EXISTS (
             SELECT 1 FROM jsonb_array_elements_text(categories) as item
-            WHERE LOWER(item) LIKE ANY(%(search_patterns)s)
+            WHERE LOWER(item) LIKE %(search_pattern)s
         )
         AND {today_filter}
         ORDER BY 
             (SELECT COUNT(*) FROM jsonb_array_elements_text(categories) as item
-             WHERE LOWER(item) LIKE ANY(%(search_patterns)s)) DESC,
+             WHERE LOWER(item) LIKE %(search_pattern)s) DESC,
             CASE WHEN afiliado = true THEN 1 ELSE 0 END DESC,
             priority DESC,
             id ASC
         LIMIT %(limit)s;
         """
         
-        # Crear patrones de búsqueda para el término original
-        search_patterns = [f"%{craving.lower()}%"]
-        
         params = {
-            "search_patterns": search_patterns,
+            "search_pattern": search_pattern,
             "limit": limit
         }
         
@@ -1051,6 +1051,9 @@ async def search_places_without_location_ai(craving: str, language: str, wa_id: 
     today_filter = get_today_hours_filter()
     
     try:
+        # Crear condiciones OR dinámicas para cada término
+        or_conditions = " OR ".join([f"LOWER(item) LIKE %(pattern_{i})s" for i in range(len(expanded_terms))])
+        
         sql = f"""
         SELECT id, name, category, products, priority, cashback, hours, 
                address, phone, url_order, imagen_url, url_extra, afiliado,
@@ -1061,23 +1064,21 @@ async def search_places_without_location_ai(craving: str, language: str, wa_id: 
         FROM public.places 
         WHERE EXISTS (
             SELECT 1 FROM jsonb_array_elements_text(categories) as item
-            WHERE LOWER(item) LIKE ANY(%(search_patterns)s)
+            WHERE {or_conditions}
         )
         AND {today_filter}
         ORDER BY 
             (SELECT COUNT(*) FROM jsonb_array_elements_text(categories) as item
-             WHERE LOWER(item) LIKE ANY(%(search_patterns)s)) DESC,
+             WHERE {or_conditions}) DESC,
             CASE WHEN afiliado = true THEN 1 ELSE 0 END DESC,
             priority DESC,
             id ASC
         LIMIT %(limit)s;
         """
         
-        # Crear patrones de búsqueda para todos los términos expandidos
-        search_patterns = [f"%{term}%" for term in expanded_terms]
-        
-        params = {
-            "search_patterns": search_patterns,
+        # Crear parámetros dinámicos para cada término
+        params = {f"pattern_{i}": f"%{term}%" for i, term in enumerate(expanded_terms)}
+        params["limit"] = limit
             "limit": limit
         }
         
@@ -1116,6 +1117,9 @@ def search_places_with_location(craving: str, user_lat: float, user_lng: float, 
     # ✅ FASE 2: Obtener filtro de horarios del día
     today_filter = get_today_hours_filter()
     
+    # Crear patrón de búsqueda
+    search_pattern = f"%{craving.lower()}%"
+    
     try:
         sql = f"""
         WITH distances AS (
@@ -1135,11 +1139,11 @@ def search_places_with_location(craving: str, user_lat: float, user_lng: float, 
                        ELSE 999999
                    END as distance_meters,
                    (SELECT COUNT(*) FROM jsonb_array_elements_text(categories) as item
-                    WHERE LOWER(item) LIKE ANY(%(search_patterns)s)) as product_match_score
+                    WHERE LOWER(item) LIKE %(search_pattern)s) as product_match_score
             FROM public.places 
             WHERE EXISTS (
                 SELECT 1 FROM jsonb_array_elements_text(categories) as item
-                WHERE LOWER(item) LIKE ANY(%(search_patterns)s)
+                WHERE LOWER(item) LIKE %(search_pattern)s
             )
             AND {today_filter}
         )
@@ -1152,11 +1156,8 @@ def search_places_with_location(craving: str, user_lat: float, user_lng: float, 
         LIMIT %(limit)s;
         """
         
-        # Crear patrones de búsqueda para el término original
-        search_patterns = [f"%{craving.lower()}%"]
-        
         params = {
-            "search_patterns": search_patterns,
+            "search_pattern": search_pattern,
             "user_lat": user_lat,
             "user_lng": user_lng,
             "limit": limit
@@ -1216,6 +1217,9 @@ async def search_places_with_location_ai(craving: str, user_lat: float, user_lng
     today_filter = get_today_hours_filter()
     
     try:
+        # Crear condiciones OR dinámicas para cada término
+        or_conditions = " OR ".join([f"LOWER(item) LIKE %(pattern_{i})s" for i in range(len(expanded_terms))])
+        
         sql = f"""
         WITH distances AS (
             SELECT id, name, category, products, priority, cashback, hours,
@@ -1234,11 +1238,11 @@ async def search_places_with_location_ai(craving: str, user_lat: float, user_lng
                        ELSE 999999
                    END as distance_meters,
                    (SELECT COUNT(*) FROM jsonb_array_elements_text(categories) as item
-                    WHERE LOWER(item) LIKE ANY(%(search_patterns)s)) as product_match_score
+                    WHERE {or_conditions}) as product_match_score
             FROM public.places 
             WHERE EXISTS (
                 SELECT 1 FROM jsonb_array_elements_text(categories) as item
-                WHERE LOWER(item) LIKE ANY(%(search_patterns)s)
+                WHERE {or_conditions}
             )
             AND {today_filter}
         )
@@ -1251,11 +1255,9 @@ async def search_places_with_location_ai(craving: str, user_lat: float, user_lng
         LIMIT %(limit)s;
         """
         
-        # Crear patrones de búsqueda para todos los términos expandidos
-        search_patterns = [f"%{term}%" for term in expanded_terms]
-        
-        params = {
-            "search_patterns": search_patterns,
+        # Crear parámetros dinámicos para cada término
+        params = {f"pattern_{i}": f"%{term}%" for i, term in enumerate(expanded_terms)}
+        params.update({
             "user_lat": user_lat,
             "user_lng": user_lng,
             "limit": limit
