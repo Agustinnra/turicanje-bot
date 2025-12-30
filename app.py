@@ -209,8 +209,34 @@ def get_hours_status_from_columns(place: dict) -> Tuple[bool, str, bool]:
         if prev_is_open:
             return (True, prev_hours_text, prev_has_hours)
 
-    # 3. Si no está abierto, retornar info del día actual
-    return (False, hours_text if has_hours else "", has_hours)
+    # 3. Si no está abierto hoy, buscar el próximo día con horarios
+    if not has_hours:
+        # Buscar en los próximos 7 días
+        day_names_es = ['lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado', 'domingo']
+        for offset in range(1, 8):
+            next_day_index = (weekday + offset) % 7
+            next_open_key, next_close_key = DAY_MAP[next_day_index]
+            next_open_time = place.get(next_open_key)
+            next_close_time = place.get(next_close_key)
+            
+            if next_open_time and next_close_time:
+                try:
+                    next_open_t = parse_time(next_open_time)
+                    next_open_formatted = next_open_t.strftime("%H:%M")
+                    day_name = day_names_es[next_day_index]
+                    
+                    if offset == 1:
+                        return (False, f"abre mañana a las {next_open_formatted}", True)
+                    else:
+                        return (False, f"abre el {day_name} a las {next_open_formatted}", True)
+                except Exception:
+                    continue
+        
+        # Si no hay horarios en toda la semana
+        return (False, "horario no disponible", False)
+    
+    # 4. Si tiene horarios hoy pero está cerrado, mostrar cuándo abre
+    return (False, hours_text if hours_text else "horario no disponible", has_hours)
 
 # ================= ENV =================
 load_dotenv()
@@ -1365,12 +1391,13 @@ def format_place_details(place: Dict[str, Any], language: str) -> str:
     distance = place.get("distance_text", "")
     products = place.get("products", [])
     cashback = place.get("cashback", False)
-    hours = place.get("hours", {})
-    delivery = place.get("delivery", False)  # ✅ NUEVO: Obtener delivery
+    delivery = place.get("delivery", False)
     
     # ✅ FIX: Priorizar url_extra (columna X) sobre url_order
     main_url = url_extra or url_order
-    is_open, hours_info = is_place_open(hours)
+    
+    # ✅ CORRECCIÓN: Usar columnas individuales en lugar de hours JSON
+    is_open, hours_info, has_hours = get_hours_status_from_columns(place)
     
     lines = [f"📍 {name}"]
     
@@ -1399,22 +1426,8 @@ def format_place_details(place: Dict[str, Any], language: str) -> str:
     if delivery and url_order:
         lines.append(f"🚚 Pedir a domicilio: {url_order}")
     
-    # Mostrar horarios de la semana si existen
-    if hours:
-        lines.append("\n⏰ Horarios:")
-        day_names = {
-            'mon': 'Lun', 'tue': 'Mar', 'wed': 'Mié',
-            'thu': 'Jue', 'fri': 'Vie', 'sat': 'Sáb', 'sun': 'Dom'
-        }
-        for day in ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun']:
-            if day in hours:
-                schedules = hours[day]
-                times = []
-                for schedule in schedules:
-                    if len(schedule) == 2:
-                        times.append(f"{schedule[0]}-{schedule[1]}")
-                if times:
-                    lines.append(f"  {day_names[day]}: {', '.join(times)}")
+    # ❌ NO MOSTRAR HORARIOS - Ya se muestran en el status ABIERTO/CERRADO
+    # Los horarios detallados solo confunden y ocupan espacio
     
     if products and len(products) > 0:
         products_text = ", ".join(products[:6])
