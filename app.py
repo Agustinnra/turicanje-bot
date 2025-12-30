@@ -791,26 +791,41 @@ async def extract_intent_with_ai(text: str, language: str, name: str, wa_id: str
         if language == "es":
             system_prompt = f"""Eres {name}, analizas mensajes para extraer qué quiere comer/probar el usuario.
 
-REGLA IMPORTANTE: Si el usuario escribe UNA o DOS PALABRAS sin contexto claro, SIEMPRE asume que es una búsqueda de comida (intent=search).
-Solo usa intent=other si es claramente una conversación (frases completas, preguntas, etc).
+REGLAS CRÍTICAS PARA NOMBRES DE NEGOCIOS:
+1. Si el mensaje tiene 1-4 PALABRAS en MAYÚSCULAS o con mayúscula inicial (ej: "El Manjar", "DEMO", "La Cochibirria"), es probablemente un nombre de negocio → business_search
+2. Si tiene palabras que parecen nombres propios (con artículo + nombre único), es negocio → business_search
+3. Nombres típicos de negocios: "El/La [Nombre]", nombres en mayúsculas, nombres compuestos
 
-Si menciona el NOMBRE ESPECÍFICO de un restaurante/negocio (ej: "Starbucks", "McDonald's"), extráelo en business_name.
-Responde SOLO en JSON con: {{"intent": "greeting|search|business_search|other", "craving": "texto exacto o null", "needs_location": true/false, "business_name": "nombre exacto o null"}}
+REGLAS PARA COMIDA:
+- Si el usuario escribe 1-2 palabras de comida (tacos, pizza, sushi), es búsqueda de comida → search
+- Solo usa intent=other si es claramente una conversación (frases completas, preguntas)
+
+Responde SOLO en JSON: {{"intent": "greeting|search|business_search|other", "craving": "texto exacto o null", "needs_location": true/false, "business_name": "nombre exacto o null"}}
 
 Intents:
 - greeting: saludos iniciales (hola, buenos días, etc)
 - business_search: busca un restaurante/negocio específico por nombre
-- search: busca comida/restaurante por tipo de comida (INCLUYE PALABRAS SUELTAS DESCONOCIDAS)
+- search: busca comida/restaurante por tipo de comida
 - other: conversación normal con frases completas
 
-Ejemplos:
+Ejemplos de NEGOCIOS (business_search):
+- "El Manjar" → {{"intent": "business_search", "craving": null, "needs_location": false, "business_name": "El Manjar"}}
+- "DEMO" → {{"intent": "business_search", "craving": null, "needs_location": false, "business_name": "DEMO"}}
+- "La Cochibirria del Barrio" → {{"intent": "business_search", "craving": null, "needs_location": false, "business_name": "La Cochibirria del Barrio"}}
+- "Albahaca Gourmet" → {{"intent": "business_search", "craving": null, "needs_location": false, "business_name": "Albahaca Gourmet"}}
+- "mándame info de Starbucks" → {{"intent": "business_search", "craving": null, "needs_location": false, "business_name": "Starbucks"}}
+
+Ejemplos de COMIDA (search):
 - "tacos" → {{"intent": "search", "craving": "tacos", "needs_location": false, "business_name": null}}
-- "popo" → {{"intent": "search", "craving": "popo", "needs_location": false, "business_name": null}}
+- "pizza" → {{"intent": "search", "craving": "pizza", "needs_location": false, "business_name": null}}
 - "algo rico" → {{"intent": "search", "craving": "algo rico", "needs_location": false, "business_name": null}}
+
+Ejemplos de CONVERSACIÓN (other):
 - "quiero comer" → {{"intent": "other", "craving": null, "needs_location": false, "business_name": null}}
+- "qué me recomiendas" → {{"intent": "other", "craving": null, "needs_location": false, "business_name": null}}
 
 needs_location solo es true si pidió "cerca", "aquí cerca", etc.
-business_name solo tiene valor si mencionó un nombre específico de negocio."""
+business_name debe ser el nombre EXACTO como lo escribió el usuario."""
         else:
             system_prompt = f"""You are {name}, you analyze messages to extract what the user wants to eat/try.
 NEVER invent food they didn't mention. If no specific food mentioned, craving is null.
