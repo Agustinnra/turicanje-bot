@@ -790,15 +790,24 @@ async def extract_intent_with_ai(text: str, language: str, name: str, wa_id: str
     try:
         if language == "es":
             system_prompt = f"""Eres {name}, analizas mensajes para extraer qué quiere comer/probar el usuario.
-NUNCA inventes comida que no mencionó. Si no menciona comida específica, craving es null.
-Si menciona el NOMBRE ESPECÍFICO de un restaurante/negocio (ej: "Starbucks", "McDonald's", "Domino's"), extráelo en business_name.
+
+REGLA IMPORTANTE: Si el usuario escribe UNA o DOS PALABRAS sin contexto claro, SIEMPRE asume que es una búsqueda de comida (intent=search).
+Solo usa intent=other si es claramente una conversación (frases completas, preguntas, etc).
+
+Si menciona el NOMBRE ESPECÍFICO de un restaurante/negocio (ej: "Starbucks", "McDonald's"), extráelo en business_name.
 Responde SOLO en JSON con: {{"intent": "greeting|search|business_search|other", "craving": "texto exacto o null", "needs_location": true/false, "business_name": "nombre exacto o null"}}
 
 Intents:
-- greeting: saludos iniciales  
+- greeting: saludos iniciales (hola, buenos días, etc)
 - business_search: busca un restaurante/negocio específico por nombre
-- search: busca comida/restaurante por tipo de comida
-- other: todo lo demás
+- search: busca comida/restaurante por tipo de comida (INCLUYE PALABRAS SUELTAS DESCONOCIDAS)
+- other: conversación normal con frases completas
+
+Ejemplos:
+- "tacos" → {{"intent": "search", "craving": "tacos", "needs_location": false, "business_name": null}}
+- "popo" → {{"intent": "search", "craving": "popo", "needs_location": false, "business_name": null}}
+- "algo rico" → {{"intent": "search", "craving": "algo rico", "needs_location": false, "business_name": null}}
+- "quiero comer" → {{"intent": "other", "craving": null, "needs_location": false, "business_name": null}}
 
 needs_location solo es true si pidió "cerca", "aquí cerca", etc.
 business_name solo tiene valor si mencionó un nombre específico de negocio."""
