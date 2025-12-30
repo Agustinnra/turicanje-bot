@@ -784,17 +784,17 @@ async def send_goodbye_message(wa_id: str, session: dict):
         # Mensaje diferente si hizo click en algún link
         if clicked_link:
             messages = [
-                f"¡Disfruta tu comida, {name}! 🍽️\n\nCuéntame cómo te fue cuando regreses 😊\n\n✨ Dale like a nuestra página: {FACEBOOK_PAGE_URL}\n📲 Comparte Turicanje con tus amigos\n\n¡Que tengas {time_greeting}!\n- Turicanje",
+                f"¡Disfruta tu comida, {name}! 🍽️\n\nCuéntame cómo te fue cuando regreses 😊\n\n✨ Dale like a nuestra página: {FACEBOOK_PAGE_URL}\n📲 Comparte con tus amigos: wa.me/5215522545216\n\n¡Que tengas {time_greeting}!\n- Turicanje",
                 
-                f"¡Buen provecho, {name}! ✨\n\nEspero que disfrutes mucho tu comida.\n\n💙 Síguenos en Facebook: {FACEBOOK_PAGE_URL}\n🎉 Comparte Turicanje con quien amas\n\n¡{time_greeting.capitalize()}!\n- Turicanje"
+                f"¡Buen provecho, {name}! ✨\n\nEspero que disfrutes mucho tu comida.\n\n💙 Síguenos en Facebook: {FACEBOOK_PAGE_URL}\n🎉 Comparte con quien amas: wa.me/5215522545216\n\n¡{time_greeting.capitalize()}!\n- Turicanje"
             ]
         else:
             messages = [
-                f"Espero que nuestra plática te haya ayudado, {name}! 😊\n\nCualquier cosa que necesites, escríbeme de nuevo.\n\n💙 Dale like en Facebook: {FACEBOOK_PAGE_URL}\n📲 Comparte con tus amigos\n\n¡Que tengas {time_greeting}! 🍽️\n- Turicanje",
+                f"Espero que nuestra plática te haya ayudado, {name}! 😊\n\nCualquier cosa que necesites, escríbeme de nuevo.\n\n💙 Dale like en Facebook: {FACEBOOK_PAGE_URL}\n📲 Comparte con tus amigos: wa.me/5215522545216\n\n¡Que tengas {time_greeting}! 🍽️\n- Turicanje",
                 
-                f"Fue un gusto ayudarte, {name}! ✨\n\nSi se te antoja algo más, ya sabes dónde encontrarme.\n\n✨ Síguenos: {FACEBOOK_PAGE_URL}\n🎉 Recomiéndanos con tus amigos\n\n¡{time_greeting.capitalize()}! 😊\n- Turicanje",
+                f"Fue un gusto ayudarte, {name}! ✨\n\nSi se te antoja algo más, ya sabes dónde encontrarme.\n\n✨ Síguenos: {FACEBOOK_PAGE_URL}\n🎉 Recomiéndanos: wa.me/5215522545216\n\n¡{time_greeting.capitalize()}! 😊\n- Turicanje",
                 
-                f"¡Listo, {name}! Espero haberte ayudado 🙌\n\nCuando quieras descubrir más lugares, aquí estaré.\n\n💙 Like en Facebook: {FACEBOOK_PAGE_URL}\n📲 Comparte Turicanje\n\n¡Que tengas {time_greeting}! 🎉\n- Turicanje"
+                f"¡Listo, {name}! Espero haberte ayudado 🙌\n\nCuando quieras descubrir más lugares, aquí estaré.\n\n💙 Like en Facebook: {FACEBOOK_PAGE_URL}\n📲 Comparte Turicanje: wa.me/5215522545216\n\n¡Que tengas {time_greeting}! 🎉\n- Turicanje"
             ]
         
         message = random.choice(messages)
@@ -935,9 +935,12 @@ REGLAS PARA COMIDA:
 - Si el usuario escribe 1-2 palabras de comida (tacos, pizza, sushi), es búsqueda de comida → search
 - Solo usa intent=other si es claramente una conversación (frases completas, preguntas)
 
-✅ FASE 5 - PAGINACIÓN:
-- Si escribe "más", "dame más", "otras opciones", "siguiente", "ver más" → more_options
+✅ FASE 5 - PAGINACIÓN (PRIORIDAD ALTA):
+- Si el mensaje es EXACTAMENTE "más", "mas", "Más", "Mas" → SIEMPRE more_options
+- También: "dame más", "otras opciones", "siguiente", "ver más" → more_options
 - Si escribe "no", "ya no", "suficiente", "no más", "está bien" → no_more_options
+
+REGLA CRÍTICA: La palabra "más" o "mas" sola SIEMPRE es more_options, NUNCA other.
 
 Responde SOLO en JSON: {{"intent": "greeting|search|business_search|more_options|no_more_options|other", "craving": "texto exacto o null", "needs_location": true/false, "business_name": "nombre exacto o null"}}
 
@@ -2209,14 +2212,20 @@ async def handle_text_message(wa_id: str, text: str, phone_number_id: str = None
             
             results_list = format_results_list(display_results, session["language"])
             
+            # ✅ FASE 5: Calcular opciones restantes
+            remaining = len(results) - len(display_results)
+            
             # ✅ SIEMPRE mostrar la lista, incluso si hay solo 1 resultado
             response = f"¡Hola! {intro_message}\n\n{results_list}\n\nEscribe el número del que te llame la atención"
-            if not session.get("user_location"):
-                response += " o pásame tu ubicación para ver qué hay por tu zona 📍"
             
-            # ✅ FASE 5: Avisar si hay más opciones
-            remaining = len(results) - len(display_results)
-            if remaining > 0:
+            # ✅ MEJORADO: Pedir ubicación Y mencionar más opciones si las hay
+            if not session.get("user_location"):
+                if remaining > 0:
+                    response += f"\n\n💬 Tengo {remaining} opciones más.\n📍 Mándame tu ubicación para ver si alguna de las otras te conviene más o escribe 'más' para verlas 😊"
+                else:
+                    response += " o pásame tu ubicación para ver qué hay por tu zona 📍"
+            elif remaining > 0:
+                # Ya tiene ubicación, solo mencionar más opciones
                 response += f"\n\n💬 Tengo {remaining} opciones más. Escribe 'más' para verlas 😊"
             
             await send_whatsapp_message(wa_id, response)
@@ -2258,15 +2267,19 @@ async def handle_text_message(wa_id: str, text: str, phone_number_id: str = None
             
             results_list = format_results_list(display_results, session["language"])
             
+            # ✅ FASE 5: Calcular opciones restantes
+            remaining = len(results) - len(display_results)
+            
             # ✅ SIEMPRE mostrar la lista, incluso si hay solo 1 resultado
             response = f"{intro_message}\n\n{results_list}\n\nMándame el número del que te guste"
             
+            # ✅ MEJORADO: Pedir ubicación Y mencionar más opciones
             if not session.get("user_location"):
-                response += " o mándame tu ubicación para ver qué hay cerca 📍"
-            
-            # ✅ FASE 5: Avisar si hay más opciones
-            remaining = len(results) - len(display_results)
-            if remaining > 0:
+                if remaining > 0:
+                    response += f"\n\n💬 Tengo {remaining} opciones más.\n📍 Mándame tu ubicación para ver si alguna de las otras te conviene más o escribe 'más' para verlas 😊"
+                else:
+                    response += " o mándame tu ubicación para ver qué hay cerca 📍"
+            elif remaining > 0:
                 response += f"\n\n💬 Tengo {remaining} opciones más. Escribe 'más' para verlas 😊"
             
             await send_whatsapp_message(wa_id, response)
