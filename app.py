@@ -971,12 +971,12 @@ def search_places_without_location(craving: str, limit: int = 10) -> List[Dict[s
                sun_open, sun_close
         FROM public.places 
         WHERE EXISTS (
-            SELECT 1 FROM jsonb_array_elements_text(categorias) as item
+            SELECT 1 FROM jsonb_array_elements_text(categories) as item
             WHERE LOWER(item) LIKE ANY(%(search_patterns)s)
         )
         AND {today_filter}
         ORDER BY 
-            (SELECT COUNT(*) FROM jsonb_array_elements_text(categorias) as item
+            (SELECT COUNT(*) FROM jsonb_array_elements_text(categories) as item
              WHERE LOWER(item) LIKE ANY(%(search_patterns)s)) DESC,
             CASE WHEN afiliado = true THEN 1 ELSE 0 END DESC,
             priority DESC,
@@ -992,7 +992,7 @@ def search_places_without_location(craving: str, limit: int = 10) -> List[Dict[s
             "limit": limit
         }
         
-        print(f"[DB-SEARCH] FASE 4: Buscando '{craving}' en categorias (SEO interno)")
+        print(f"[DB-SEARCH] FASE 4: Buscando '{craving}' en categories (SEO interno)")
         
         with get_pool().connection() as conn, conn.cursor(row_factory=psycopg.rows.dict_row) as cur:
             cur.execute(sql, params)
@@ -1051,12 +1051,12 @@ async def search_places_without_location_ai(craving: str, language: str, wa_id: 
                sun_open, sun_close
         FROM public.places 
         WHERE EXISTS (
-            SELECT 1 FROM jsonb_array_elements_text(categorias) as item
+            SELECT 1 FROM jsonb_array_elements_text(categories) as item
             WHERE LOWER(item) LIKE ANY(%(search_patterns)s)
         )
         AND {today_filter}
         ORDER BY 
-            (SELECT COUNT(*) FROM jsonb_array_elements_text(categorias) as item
+            (SELECT COUNT(*) FROM jsonb_array_elements_text(categories) as item
              WHERE LOWER(item) LIKE ANY(%(search_patterns)s)) DESC,
             CASE WHEN afiliado = true THEN 1 ELSE 0 END DESC,
             priority DESC,
@@ -1125,11 +1125,11 @@ def search_places_with_location(craving: str, user_lat: float, user_lng: float, 
                            ))
                        ELSE 999999
                    END as distance_meters,
-                   (SELECT COUNT(*) FROM jsonb_array_elements_text(categorias) as item
+                   (SELECT COUNT(*) FROM jsonb_array_elements_text(categories) as item
                     WHERE LOWER(item) LIKE ANY(%(search_patterns)s)) as product_match_score
             FROM public.places 
             WHERE EXISTS (
-                SELECT 1 FROM jsonb_array_elements_text(categorias) as item
+                SELECT 1 FROM jsonb_array_elements_text(categories) as item
                 WHERE LOWER(item) LIKE ANY(%(search_patterns)s)
             )
             AND {today_filter}
@@ -1153,7 +1153,7 @@ def search_places_with_location(craving: str, user_lat: float, user_lng: float, 
             "limit": limit
         }
         
-        print(f"[DB-SEARCH] FASE 4 CON UBICACIÓN: Buscando '{craving}' en categorias (SEO interno)")
+        print(f"[DB-SEARCH] FASE 4 CON UBICACIÓN: Buscando '{craving}' en categories (SEO interno)")
         
         with get_pool().connection() as conn, conn.cursor(row_factory=psycopg.rows.dict_row) as cur:
             cur.execute(sql, params)
@@ -1224,11 +1224,11 @@ async def search_places_with_location_ai(craving: str, user_lat: float, user_lng
                            ))
                        ELSE 999999
                    END as distance_meters,
-                   (SELECT COUNT(*) FROM jsonb_array_elements_text(categorias) as item
+                   (SELECT COUNT(*) FROM jsonb_array_elements_text(categories) as item
                     WHERE LOWER(item) LIKE ANY(%(search_patterns)s)) as product_match_score
             FROM public.places 
             WHERE EXISTS (
-                SELECT 1 FROM jsonb_array_elements_text(categorias) as item
+                SELECT 1 FROM jsonb_array_elements_text(categories) as item
                 WHERE LOWER(item) LIKE ANY(%(search_patterns)s)
             )
             AND {today_filter}
