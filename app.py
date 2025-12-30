@@ -258,7 +258,17 @@ DB_PASSWORD = os.getenv("DB_PASSWORD", "")
 
 # Configuración
 IDLE_RESET_SECONDS = int(os.getenv("IDLE_RESET_SECONDS", "120"))  # 2 minutos
-MAX_SUGGESTIONS = 3  # FIJO: Siempre 3 opciones
+MAX_SUGGESTIONS = 3  # FIJO: Siempre 3 opciones por página
+
+# ✅ FASE 5: Configuración de timeouts y paginación
+SEARCH_TIMEOUT = int(os.getenv("SEARCH_TIMEOUT", "120"))  # 2 min para pruebas (cambiar a 300 para prod)
+CONVERSATION_TIMEOUT = int(os.getenv("CONVERSATION_TIMEOUT", "120"))  # 2 min para pruebas
+SESSION_RESET_TIMEOUT = int(os.getenv("SESSION_RESET_TIMEOUT", "600"))  # 10 min - Nueva sesión completa
+PAGINATION_SIZE = 3  # Cuántos resultados mostrar por página
+
+# ✅ FASE 5: URLs de redes sociales
+FACEBOOK_PAGE_URL = "https://www.facebook.com/turicanje"
+INSTAGRAM_URL = "https://www.instagram.com/turicanje"
 
 # Configuración DUAL (DEV + PROD)
 DEV_PHONE_NUMBER_ID = "816732738189248"
@@ -733,14 +743,113 @@ def get_or_create_user_session(wa_id: str) -> Dict[str, Any]:
         "name": name,
         "language": "es",  # ✅ SIEMPRE ESPAÑOL
         "last_seen": current_time,
+        "session_start": current_time,  # ✅ FASE 5: Timestamp de inicio de sesión
         "is_new": True,
-        "last_search": {},
+        "last_search": None,  # ✅ FASE 5: Cambiado de {} a None
         "last_results": [],
-        "user_location": None
+        "user_location": None,
+        # ✅ FASE 5: Nuevos campos para analytics y despedida
+        "goodbye_sent": False,
+        "message_count": 0,
+        "search_count": 0,
+        "shown_count": 0,
+        "clicked_link": False
     }
     user_sessions[wa_id] = session
     print(f"[SESSION] Nueva sesión: {wa_id} -> {name} (es)")
     return session
+
+# ================= FASE 5: MENSAJES DE DESPEDIDA Y TIMEOUTS =================
+
+def get_time_greeting() -> str:
+    """Retorna saludo según hora del día en CDMX"""
+    tz = pytz.timezone("America/Mexico_City")
+    now = datetime.now(tz)
+    hour = now.hour
+    
+    if hour < 12:
+        return "buen día"
+    elif hour < 19:
+        return "buena tarde"
+    else:
+        return "buena noche"
+
+async def send_goodbye_message(wa_id: str, session: dict):
+    """Envía mensaje de despedida automático después de timeout"""
+    try:
+        name = session.get("name", "")
+        time_greeting = get_time_greeting()
+        clicked_link = session.get("clicked_link", False)
+        
+        # Mensaje diferente si hizo click en algún link
+        if clicked_link:
+            messages = [
+                f"¡Disfruta tu comida, {name}! 🍽️\n\nCuéntame cómo te fue cuando regreses 😊\n\n✨ Dale like a nuestra página: {FACEBOOK_PAGE_URL}\n📲 Comparte Turicanje con tus amigos\n\n¡Que tengas {time_greeting}!\n- Turicanje",
+                
+                f"¡Buen provecho, {name}! ✨\n\nEspero que disfrutes mucho tu comida.\n\n💙 Síguenos en Facebook: {FACEBOOK_PAGE_URL}\n🎉 Comparte Turicanje con quien amas\n\n¡{time_greeting.capitalize()}!\n- Turicanje"
+            ]
+        else:
+            messages = [
+                f"Espero que nuestra plática te haya ayudado, {name}! 😊\n\nCualquier cosa que necesites, escríbeme de nuevo.\n\n💙 Dale like en Facebook: {FACEBOOK_PAGE_URL}\n📲 Comparte con tus amigos\n\n¡Que tengas {time_greeting}! 🍽️\n- Turicanje",
+                
+                f"Fue un gusto ayudarte, {name}! ✨\n\nSi se te antoja algo más, ya sabes dónde encontrarme.\n\n✨ Síguenos: {FACEBOOK_PAGE_URL}\n🎉 Recomiéndanos con tus amigos\n\n¡{time_greeting.capitalize()}! 😊\n- Turicanje",
+                
+                f"¡Listo, {name}! Espero haberte ayudado 🙌\n\nCuando quieras descubrir más lugares, aquí estaré.\n\n💙 Like en Facebook: {FACEBOOK_PAGE_URL}\n📲 Comparte Turicanje\n\n¡Que tengas {time_greeting}! 🎉\n- Turicanje"
+            ]
+        
+        message = random.choice(messages)
+        
+        # Enviar vía WhatsApp
+        await send_whatsapp_message(wa_id, message)
+        
+        print(f"[GOODBYE] Mensaje de despedida enviado a {wa_id}")
+        
+    except Exception as e:
+        print(f"[GOODBYE] Error enviando despedida a {wa_id}: {e}")
+
+def check_idle_sessions():
+    """
+    Verifica sesiones inactivas y envía mensajes de despedida.
+    Se ejecuta cada 30 segundos en background.
+    """
+    import asyncio
+    
+    current_time = time.time()
+    sessions_to_goodbye = []
+    
+    for wa_id, session in list(user_sessions.items()):
+        last_seen = session.get("last_seen", 0)
+        idle_time = current_time - last_seen
+        goodbye_sent = session.get("goodbye_sent", False)
+        
+        # Si pasaron CONVERSATION_TIMEOUT segundos y no se envió despedida
+        if idle_time >= CONVERSATION_TIMEOUT and not goodbye_sent:
+            sessions_to_goodbye.append((wa_id, session))
+            session["goodbye_sent"] = True
+    
+    # Enviar despedidas de forma asíncrona
+    if sessions_to_goodbye:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        
+        for wa_id, session in sessions_to_goodbye:
+            try:
+                loop.run_until_complete(send_goodbye_message(wa_id, session))
+            except Exception as e:
+                print(f"[GOODBYE] Error en loop para {wa_id}: {e}")
+        
+        loop.close()
+
+# ✅ Iniciar background scheduler
+from apscheduler.schedulers.background import BackgroundScheduler
+
+scheduler = BackgroundScheduler()
+scheduler.add_job(check_idle_sessions, 'interval', seconds=30)  # Cada 30 segundos
+scheduler.start()
+print("[SCHEDULER] ✅ Background job iniciado - verificando sesiones inactivas cada 30s")
+
+# ================= FIN FASE 5: DESPEDIDAS =================
+
 
 # ================= IA: EXTRACCIÓN DE INTENCIÓN =================
 async def expand_search_terms_with_ai(craving: str, language: str, wa_id: str) -> List[str]:
@@ -826,12 +935,18 @@ REGLAS PARA COMIDA:
 - Si el usuario escribe 1-2 palabras de comida (tacos, pizza, sushi), es búsqueda de comida → search
 - Solo usa intent=other si es claramente una conversación (frases completas, preguntas)
 
-Responde SOLO en JSON: {{"intent": "greeting|search|business_search|other", "craving": "texto exacto o null", "needs_location": true/false, "business_name": "nombre exacto o null"}}
+✅ FASE 5 - PAGINACIÓN:
+- Si escribe "más", "dame más", "otras opciones", "siguiente", "ver más" → more_options
+- Si escribe "no", "ya no", "suficiente", "no más", "está bien" → no_more_options
+
+Responde SOLO en JSON: {{"intent": "greeting|search|business_search|more_options|no_more_options|other", "craving": "texto exacto o null", "needs_location": true/false, "business_name": "nombre exacto o null"}}
 
 Intents:
 - greeting: saludos iniciales (hola, buenos días, etc)
 - business_search: busca un restaurante/negocio específico por nombre
 - search: busca comida/restaurante por tipo de comida
+- more_options: quiere ver más resultados de búsqueda activa
+- no_more_options: NO quiere más resultados
 - other: conversación normal con frases completas
 
 Ejemplos de NEGOCIOS (business_search):
@@ -845,6 +960,14 @@ Ejemplos de COMIDA (search):
 - "tacos" → {{"intent": "search", "craving": "tacos", "needs_location": false, "business_name": null}}
 - "pizza" → {{"intent": "search", "craving": "pizza", "needs_location": false, "business_name": null}}
 - "algo rico" → {{"intent": "search", "craving": "algo rico", "needs_location": false, "business_name": null}}
+
+Ejemplos de PAGINACIÓN (more_options / no_more_options):
+- "más" → {{"intent": "more_options", "craving": null, "needs_location": false, "business_name": null}}
+- "dame más opciones" → {{"intent": "more_options", "craving": null, "needs_location": false, "business_name": null}}
+- "siguiente" → {{"intent": "more_options", "craving": null, "needs_location": false, "business_name": null}}
+- "no" → {{"intent": "no_more_options", "craving": null, "needs_location": false, "business_name": null}}
+- "ya no" → {{"intent": "no_more_options", "craving": null, "needs_location": false, "business_name": null}}
+- "está bien así" → {{"intent": "no_more_options", "craving": null, "needs_location": false, "business_name": null}}
 
 Ejemplos de CONVERSACIÓN (other):
 - "quiero comer" → {{"intent": "other", "craving": null, "needs_location": false, "business_name": null}}
@@ -1365,6 +1488,51 @@ def format_results_list(results: List[Dict[str, Any]], language: str) -> str:
         block = [title]
         
         # ✅ FASE 1 - CAMBIO 2: Solo mostrar delivery si tiene
+        if has_delivery:
+            block.append(f"🛵 Servicio a domicilio ✅")
+        
+        block.append(f"💳 Acumula cashback: {'Sí 💰' if cashback else 'No'}")
+
+        if distance:
+            block.append(f"📍 Distancia: {distance}")
+
+        if url:
+            block.append(f"🔗 Ver el lugar: {url}")
+
+        lines.append("\n".join(block))
+
+    return "\n\n".join(lines)
+
+
+def format_results_list_with_offset(results: List[Dict[str, Any]], offset: int, language: str) -> str:
+    """
+    ✅ FASE 5: Igual que format_results_list pero con offset para paginación.
+    offset = cuántos resultados ya se mostraron antes
+    """
+    if not results:
+        return ""
+
+    lines: List[str] = []
+
+    for idx, place in enumerate(results, offset + 1):  # ← El único cambio
+        name = place.get("name") or place.get("name_es") or place.get("name_en") or "Sin nombre"
+        distance = place.get("distance_text", "") or ""
+        url = place.get("url_extra") or place.get("url_order") or ""
+        cashback = bool(place.get("cashback", False))
+        has_delivery = bool(place.get("delivery"))
+        is_open, hours_info, has_hours = get_hours_status_from_columns(place)
+
+        if is_open:
+            title = f"📍 {idx}) {name} 🟢 ABIERTO"
+            if hours_info:
+                title += f" ({hours_info})"
+        else:
+            title = f"📍 {idx}) {name} 🔴 CERRADO"
+            if hours_info:
+                title += f" ({hours_info})"
+
+        block = [title]
+        
         if has_delivery:
             block.append(f"🛵 Servicio a domicilio ✅")
         
@@ -1917,6 +2085,10 @@ async def handle_text_message(wa_id: str, text: str, phone_number_id: str = None
     # ✅ Si está en español, continuar normalmente (siempre con idioma "es")
     session = get_or_create_user_session(wa_id)
     
+    # ✅ FASE 5: Incrementar contador de mensajes y resetear goodbye_sent
+    session["message_count"] = session.get("message_count", 0) + 1
+    session["goodbye_sent"] = False  # Resetear si el usuario volvió a escribir
+    
     intent_data = await extract_intent_with_ai(text, session["language"], session["name"], wa_id)
     intent = intent_data.get("intent", "other")
     craving = intent_data.get("craving")
@@ -1980,6 +2152,11 @@ async def handle_text_message(wa_id: str, text: str, phone_number_id: str = None
 
             if 1 <= selected_number <= len(results):
                 selected_place = results[selected_number - 1]
+                
+                # ✅ FASE 5: Trackear que hizo click en un lugar
+                session["clicked_link"] = True
+                session["shown_count"] = session.get("shown_count", 0) + 1
+                
                 details = format_place_details(selected_place, session["language"])
                 await send_whatsapp_message(wa_id, details, phone_number_id)
 
@@ -2008,12 +2185,21 @@ async def handle_text_message(wa_id: str, text: str, phone_number_id: str = None
         else:
             results, used_expansion = await search_places_without_location_ai(craving, session["language"], wa_id, 10)
         
-        # Limitar a 5 para mostrar, pero buscar hasta 10
-        display_results = results[:MAX_SUGGESTIONS]
+        # Limitar a 3 para mostrar en primera página (PAGINATION_SIZE)
+        display_results = results[:PAGINATION_SIZE]
         print(f"[DEBUG] FINAL: {len(display_results)} resultados enviados de {len(results)} encontrados")
         
         if display_results:
-            session["last_results"] = display_results  # Guardamos todos los resultados
+            # ✅ FASE 5: Guardar TODOS los resultados para paginación
+            session["last_search"] = {
+                "craving": craving,
+                "needs_location": needs_location,
+                "all_results": results,  # TODOS los resultados
+                "shown_count": len(display_results),  # Cuántos ya mostró
+                "timestamp": time.time()
+            }
+            session["last_results"] = display_results  # Compatibilidad con selección por número
+            session["search_count"] = session.get("search_count", 0) + 1
             
             # ✅ NUEVO: Si usó expansión, avisar al usuario
             if used_expansion:
@@ -2028,6 +2214,11 @@ async def handle_text_message(wa_id: str, text: str, phone_number_id: str = None
             if not session.get("user_location"):
                 response += " o pásame tu ubicación para ver qué hay por tu zona 📍"
             
+            # ✅ FASE 5: Avisar si hay más opciones
+            remaining = len(results) - len(display_results)
+            if remaining > 0:
+                response += f"\n\n💬 Tengo {remaining} opciones más. Escribe 'más' para verlas 😊"
+            
             await send_whatsapp_message(wa_id, response)
         else:
             response = f"¡Hola! Ay no, no tengo {craving} en mi lista. ¿Qué tal si me dices otra cosa que se te antoje o me mandas tu ubicación para ver qué opciones hay por ahí?"
@@ -2036,8 +2227,6 @@ async def handle_text_message(wa_id: str, text: str, phone_number_id: str = None
     
     # BÚSQUEDAS REGULARES: Solo craving sin saludo en sesión existente
     if intent == "search" and craving and not is_new_session:
-        session["last_search"] = {"craving": craving, "needs_location": needs_location}
-        
         if session.get("user_location"):
             user_lat = session["user_location"]["lat"]
             user_lng = session["user_location"]["lng"] 
@@ -2045,12 +2234,21 @@ async def handle_text_message(wa_id: str, text: str, phone_number_id: str = None
         else:
             results, used_expansion = await search_places_without_location_ai(craving, session["language"], wa_id, 10)
         
-        # Limitar a 5 para mostrar, pero buscar hasta 10
-        display_results = results[:MAX_SUGGESTIONS]
+        # Limitar a 3 para primera página
+        display_results = results[:PAGINATION_SIZE]
         print(f"[DEBUG REGULAR] FINAL: {len(display_results)} resultados enviados de {len(results)} encontrados")
         
         if display_results:
-            session["last_results"] = display_results  # Guardamos todos los resultados
+            # ✅ FASE 5: Guardar TODOS los resultados para paginación
+            session["last_search"] = {
+                "craving": craving,
+                "needs_location": needs_location,
+                "all_results": results,  # TODOS los resultados
+                "shown_count": len(display_results),  # Cuántos ya mostró
+                "timestamp": time.time()
+            }
+            session["last_results"] = display_results  # Compatibilidad con selección por número
+            session["search_count"] = session.get("search_count", 0) + 1
             
             # ✅ NUEVO: Si usó expansión, avisar al usuario
             if used_expansion:
@@ -2066,6 +2264,11 @@ async def handle_text_message(wa_id: str, text: str, phone_number_id: str = None
             if not session.get("user_location"):
                 response += " o mándame tu ubicación para ver qué hay cerca 📍"
             
+            # ✅ FASE 5: Avisar si hay más opciones
+            remaining = len(results) - len(display_results)
+            if remaining > 0:
+                response += f"\n\n💬 Tengo {remaining} opciones más. Escribe 'más' para verlas 😊"
+            
             await send_whatsapp_message(wa_id, response)
         else:
             if session.get("user_location"):
@@ -2074,6 +2277,51 @@ async def handle_text_message(wa_id: str, text: str, phone_number_id: str = None
                 response = f"No tengo {craving} en mi lista. ¿Qué tal otra cosa o me mandas tu ubicación?"
             
             await send_whatsapp_message(wa_id, response)
+        return
+    
+    # ✅ FASE 5: PAGINACIÓN - "más opciones"
+    if intent == "more_options":
+        last_search = session.get("last_search")
+        
+        if not last_search or not last_search.get("all_results"):
+            response = "No tengo una búsqueda activa. ¿Qué se te antoja comer? 😊"
+            await send_whatsapp_message(wa_id, response)
+            return
+        
+        all_results = last_search["all_results"]
+        shown_count = last_search.get("shown_count", 0)
+        total_results = len(all_results)
+        
+        # Verificar si ya se mostraron todos
+        if shown_count >= total_results:
+            session["last_search"] = None  # Limpiar búsqueda
+            response = "Esas eran todas las opciones que tengo 😅 ¿Quieres buscar algo diferente?"
+            await send_whatsapp_message(wa_id, response)
+            return
+        
+        # Mostrar siguiente página
+        next_batch = all_results[shown_count:shown_count + PAGINATION_SIZE]
+        session["last_search"]["shown_count"] = shown_count + len(next_batch)
+        session["shown_count"] += len(next_batch)
+        
+        # Formatear resultados con índice correcto
+        results_list = format_results_list_with_offset(next_batch, shown_count, session["language"])
+        
+        remaining = total_results - (shown_count + len(next_batch))
+        
+        if remaining > 0:
+            response = f"Aquí van {len(next_batch)} opciones más:\n\n{results_list}\n\n💬 Tengo {remaining} opciones más.\nEscribe 'más' para verlas o el número del que te guste 😊"
+        else:
+            response = f"Aquí van las últimas {len(next_batch)} opciones:\n\n{results_list}\n\nMándame el número del que te guste 😊"
+        
+        await send_whatsapp_message(wa_id, response)
+        return
+    
+    # ✅ FASE 5: PAGINACIÓN - "ya no quiero más"
+    if intent == "no_more_options":
+        session["last_search"] = None  # Limpiar búsqueda activa
+        response = "Perfecto! ¿Qué se te antoja comer? 😊"
+        await send_whatsapp_message(wa_id, response)
         return
     
     # OTROS CASOS
@@ -2105,11 +2353,19 @@ async def handle_location_message(wa_id: str, lat: float, lng: float, phone_numb
         craving = session["last_search"]["craving"]
         results, used_expansion = await search_places_with_location_ai(craving, lat, lng, session["language"], wa_id, 10)
 
-        # Limitar a MAX_SUGGESTIONS para mostrar, pero buscar hasta 10
-        display_results = results[:MAX_SUGGESTIONS]
+        # Limitar a 3 para primera página
+        display_results = results[:PAGINATION_SIZE]
         print(f"[DEBUG UBICACIÓN] FINAL: {len(display_results)} resultados enviados de {len(results)} encontrados")
 
         if display_results:
+            # ✅ FASE 5: Guardar TODOS los resultados
+            session["last_search"] = {
+                "craving": craving,
+                "needs_location": False,  # Ya tiene ubicación
+                "all_results": results,
+                "shown_count": len(display_results),
+                "timestamp": time.time()
+            }
             session["last_results"] = display_results
             
             # ✅ NUEVO: Si usó expansión, avisar al usuario
@@ -2122,6 +2378,11 @@ async def handle_location_message(wa_id: str, lat: float, lng: float, phone_numb
 
             # ✅ SIEMPRE mostrar la lista, incluso si hay solo 1 resultado
             response = f"{intro_message}\n\n{results_list}\n\nMándame el número del que te guste 📍"
+            
+            # ✅ FASE 5: Avisar si hay más opciones
+            remaining = len(results) - len(display_results)
+            if remaining > 0:
+                response += f"\n\n💬 Tengo {remaining} opciones más. Escribe 'más' para verlas 😊"
 
             await send_whatsapp_message(wa_id, response, phone_number_id)
         else:
