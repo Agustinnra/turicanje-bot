@@ -999,8 +999,14 @@ def search_places_without_location(craving: str, limit: int = 10) -> List[Dict[s
         params = (search_pattern, search_pattern, limit)
         
         print(f"[DB-SEARCH] FASE 4: Buscando '{craving}' en categories (SEO interno)")
+        print(f"[DEBUG] Search pattern: {search_pattern}")
+        print(f"[DEBUG] Params: {params}")
         
         with get_pool().connection() as conn, conn.cursor(row_factory=psycopg.rows.dict_row) as cur:
+            # Debug: Mostrar el query final
+            compiled_query = cur.mogrify(sql, params).decode('utf-8') if hasattr(cur, 'mogrify') else sql
+            print(f"[DEBUG] Compiled SQL: {compiled_query[:500]}...")
+            
             cur.execute(sql, params)
             rows = cur.fetchall()
             
