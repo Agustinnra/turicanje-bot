@@ -1992,17 +1992,12 @@ async def handle_webhook(request: Request):
         print(f"[WEBHOOK] JSON inválido: {e}")
         raise HTTPException(status_code=400, detail="JSON inválido")
     
-    # ✅ DEBUG: Loguear payload completo para ver qué está llegando
-    print(f"[WEBHOOK-DEBUG] Payload recibido: {json.dumps(data, indent=2)}")
-    
     entries = data.get("entry", [])
     if not entries:
-        print("[WEBHOOK-DEBUG] No hay entries en el payload")
         return {"status": "no entries"}
     
     changes = entries[0].get("changes", [])
     if not changes:
-        print("[WEBHOOK-DEBUG] No hay changes en el payload")
         return {"status": "no changes"}
     
     value = changes[0].get("value", {})
@@ -2014,7 +2009,6 @@ async def handle_webhook(request: Request):
     messages = value.get("messages", [])
     
     if not messages:
-        print(f"[WEBHOOK-DEBUG] No hay messages en value. Value completo: {json.dumps(value, indent=2)}")
         return {"status": "no messages"}
     
     message = messages[0]
@@ -2022,27 +2016,20 @@ async def handle_webhook(request: Request):
     message_type = message.get("type", "")
     
     print(f"{config['prefix']} [WEBHOOK] Mensaje de {from_wa}, tipo: {message_type}")
-    print(f"[WEBHOOK-DEBUG] Mensaje completo: {json.dumps(message, indent=2)}")
     
     if message_type == "text":
         text = message.get("text", {}).get("body", "").strip()
-        await handle_text_message(from_wa, text, phone_number_id)  # ✅ Agregado phone_number_id
+        await handle_text_message(from_wa, text, phone_number_id)
         
     elif message_type == "location":
-        print(f"[WEBHOOK-DEBUG] ✅ Recibiendo mensaje de ubicación!")
         location = message.get("location", {})
         lat = location.get("latitude")
-        lng = location.get("longitude")
-        print(f"[WEBHOOK-DEBUG] Location object: {json.dumps(location, indent=2)}")
-        print(f"[WEBHOOK-DEBUG] lat={lat}, lng={lng}")
+        lng = location.get("longitude") 
         if lat and lng:
-            await handle_location_message(from_wa, float(lat), float(lng), phone_number_id)  # ✅ Agregado
-        else:
-            print(f"[WEBHOOK-DEBUG] ❌ lat o lng están vacíos!")
-        
+            await handle_location_message(from_wa, float(lat), float(lng), phone_number_id)
         
     else:
-        print(f"{config['prefix']} [WEBHOOK] Tipo de mensaje no soportado: {message_type}")  # ✅ Agregado prefix
+        print(f"{config['prefix']} [WEBHOOK] Tipo de mensaje no soportado: {message_type}")
     
     return {"status": "processed"}
 
