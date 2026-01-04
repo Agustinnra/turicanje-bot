@@ -2278,6 +2278,22 @@ async def handle_text_message(wa_id: str, text: str, phone_number_id: str = None
             print(f"[ANALYTICS] Error logging search: {e}")
         
         if display_results:
+            # ✅ NUEVO: Verificar si TODOS los lugares están cerrados
+            all_closed = all(not place.get("is_open_now", False) for place in display_results)
+            
+            if all_closed:
+                # Todos los lugares están cerrados - mensaje especial sin mostrar lista
+                if session.get("user_location"):
+                    response = f"¡Hola! Ahorita todos los lugares que tienen {craving} cerca de ti están cerrados 😕\n\n¿Se te antoja algo más o quieres que busque otra cosa?"
+                else:
+                    response = f"¡Hola! Ahorita todos los lugares que tienen {craving} están cerrados 😕\n\n¿Se te antoja algo más o mándame tu ubicación para decirte qué está abierto cerca de ti? 📍"
+                
+                await send_whatsapp_message(wa_id, response)
+                # Limpiar búsqueda ya que no mostramos resultados
+                session["last_search"] = None
+                session["last_results"] = []
+                return
+            
             # ✅ FASE 5: Guardar TODOS los resultados para paginación
             session["last_search"] = {
                 "craving": craving,
@@ -2357,6 +2373,22 @@ async def handle_text_message(wa_id: str, text: str, phone_number_id: str = None
             print(f"[ANALYTICS] Error logging search: {e}")
         
         if display_results:
+            # ✅ NUEVO: Verificar si TODOS los lugares están cerrados
+            all_closed = all(not place.get("is_open_now", False) for place in display_results)
+            
+            if all_closed:
+                # Todos los lugares están cerrados - mensaje especial sin mostrar lista
+                if session.get("user_location"):
+                    response = f"Ahorita todos los lugares que tienen {craving} cerca de ti están cerrados 😕\n\n¿Se te antoja algo más o quieres que busque otra cosa?"
+                else:
+                    response = f"Ahorita todos los lugares que tienen {craving} están cerrados 😕\n\n¿Se te antoja algo más o mándame tu ubicación para decirte qué está abierto cerca de ti? 📍"
+                
+                await send_whatsapp_message(wa_id, response)
+                # Limpiar búsqueda ya que no mostramos resultados
+                session["last_search"] = None
+                session["last_results"] = []
+                return
+            
             # ✅ FASE 5: Guardar TODOS los resultados para paginación
             session["last_search"] = {
                 "craving": craving,
