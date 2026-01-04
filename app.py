@@ -83,8 +83,16 @@ def is_open_now_by_day(place: dict) -> bool:
     print(f"[OPEN-CHECK-DEBUG] Verificando {place_id} - {place_name}")
 
     def parse_time(time_str):
-        """Helper para parsear tiempos en múltiples formatos"""
+        """Helper para parsear tiempos en múltiples formatos
+        Maneja casos especiales como 24:00:00 (medianoche)"""
         time_str = str(time_str).strip()
+        
+        # ✅ CASO ESPECIAL: 24:00:00 = medianoche (fin del día)
+        # Convertir a 23:59:59 para que la lógica funcione correctamente
+        if time_str in ["24:00:00", "24:00"]:
+            time_str = "23:59:59"
+            print(f"[OPEN-CHECK-DEBUG] Convirtiendo 24:00 a 23:59:59 para {place_name}")
+        
         for fmt in ["%H:%M:%S", "%H:%M"]:
             try:
                 return datetime.strptime(time_str, fmt).time()
@@ -164,8 +172,14 @@ def get_hours_status_from_columns(place: dict) -> Tuple[bool, str, bool]:
     weekday = now.weekday()
 
     def parse_time(time_str):
-        """Helper para parsear tiempos"""
+        """Helper para parsear tiempos
+        Maneja casos especiales como 24:00:00 (medianoche)"""
         time_str = str(time_str).strip()
+        
+        # ✅ CASO ESPECIAL: 24:00:00 = medianoche (fin del día)
+        if time_str in ["24:00:00", "24:00"]:
+            time_str = "23:59:59"
+        
         for fmt in ["%H:%M:%S", "%H:%M"]:
             try:
                 return datetime.strptime(time_str, fmt).time()
