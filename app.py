@@ -2253,9 +2253,12 @@ async def handle_text_message(wa_id: str, text: str, phone_number_id: str = None
         else:
             results, used_expansion = await search_places_without_location_ai(craving, session["language"], wa_id, 10)
         
+        # ✅ NUEVO: FILTRAR para mostrar SOLO lugares abiertos
+        open_results = [place for place in results if place.get("is_open_now", False)]
+        
         # Limitar a 3 para mostrar en primera página (PAGINATION_SIZE)
-        display_results = results[:PAGINATION_SIZE]
-        print(f"[DEBUG] FINAL: {len(display_results)} resultados enviados de {len(results)} encontrados")
+        display_results = open_results[:PAGINATION_SIZE]
+        print(f"[DEBUG] FINAL: {len(display_results)} abiertos de {len(results)} encontrados (filtrados: {len(results) - len(open_results)} cerrados)")
         
         # ✅ ANALYTICS: Log search
         try:
@@ -2278,27 +2281,12 @@ async def handle_text_message(wa_id: str, text: str, phone_number_id: str = None
             print(f"[ANALYTICS] Error logging search: {e}")
         
         if display_results:
-            # ✅ NUEVO: Verificar si TODOS los lugares están cerrados
-            all_closed = all(not place.get("is_open_now", False) for place in display_results)
-            
-            if all_closed:
-                # Todos los lugares están cerrados - mensaje especial sin mostrar lista
-                if session.get("user_location"):
-                    response = f"¡Hola! Ahorita todos los lugares que tienen {craving} cerca de ti están cerrados 😕\n\n¿Se te antoja algo más o quieres que busque otra cosa?"
-                else:
-                    response = f"¡Hola! Ahorita todos los lugares que tienen {craving} están cerrados 😕\n\n¿Se te antoja algo más o mándame tu ubicación para decirte qué está abierto cerca de ti? 📍"
-                
-                await send_whatsapp_message(wa_id, response)
-                # Limpiar búsqueda ya que no mostramos resultados
-                session["last_search"] = None
-                session["last_results"] = []
-                return
-            
-            # ✅ FASE 5: Guardar TODOS los resultados para paginación
+            # Ya solo tenemos lugares abiertos, no necesitamos verificar all_closed
+            # ✅ FASE 5: Guardar TODOS los resultados ABIERTOS para paginación
             session["last_search"] = {
                 "craving": craving,
                 "needs_location": needs_location,
-                "all_results": results,  # TODOS los resultados
+                "all_results": open_results,  # TODOS los resultados ABIERTOS
                 "shown_count": len(display_results),  # Cuántos ya mostró
                 "timestamp": time.time()
             }
@@ -2313,8 +2301,8 @@ async def handle_text_message(wa_id: str, text: str, phone_number_id: str = None
             
             results_list = format_results_list(display_results, session["language"])
             
-            # ✅ FASE 5: Calcular opciones restantes
-            remaining = len(results) - len(display_results)
+            # ✅ FASE 5: Calcular opciones restantes (solo abiertos)
+            remaining = len(open_results) - len(display_results)
             
             # ✅ SIEMPRE mostrar la lista, incluso si hay solo 1 resultado
             # Mensaje diferente si solo hay 1 resultado vs múltiples
@@ -2335,6 +2323,14 @@ async def handle_text_message(wa_id: str, text: str, phone_number_id: str = None
             
             await send_whatsapp_message(wa_id, response)
         else:
+            # No hay lugares abiertos - mensaje especial
+            if session.get("user_location"):
+                response = f"¡Hola! Ahorita todos los lugares que tienen {craving} cerca de ti están cerrados 😕\n\n¿Se te antoja algo más o quieres que busque otra cosa?"
+            else:
+                response = f"¡Hola! Ahorita todos los lugares que tienen {craving} están cerrados 😕\n\n¿Se te antoja algo más o mándame tu ubicación para decirte qué está abierto cerca de ti? 📍"
+            
+            await send_whatsapp_message(wa_id, response)
+        else:
             response = f"¡Hola! Ay no, no tengo {craving} en mi lista. ¿Qué tal si me dices otra cosa que se te antoje o me mandas tu ubicación para ver qué opciones hay por ahí?"
             await send_whatsapp_message(wa_id, response)
         return
@@ -2348,9 +2344,12 @@ async def handle_text_message(wa_id: str, text: str, phone_number_id: str = None
         else:
             results, used_expansion = await search_places_without_location_ai(craving, session["language"], wa_id, 10)
         
+        # ✅ NUEVO: FILTRAR para mostrar SOLO lugares abiertos
+        open_results = [place for place in results if place.get("is_open_now", False)]
+        
         # Limitar a 3 para primera página
-        display_results = results[:PAGINATION_SIZE]
-        print(f"[DEBUG REGULAR] FINAL: {len(display_results)} resultados enviados de {len(results)} encontrados")
+        display_results = open_results[:PAGINATION_SIZE]
+        print(f"[DEBUG REGULAR] FINAL: {len(display_results)} abiertos de {len(results)} encontrados (filtrados: {len(results) - len(open_results)} cerrados)")
         
         # ✅ ANALYTICS: Log search
         try:
@@ -2373,27 +2372,12 @@ async def handle_text_message(wa_id: str, text: str, phone_number_id: str = None
             print(f"[ANALYTICS] Error logging search: {e}")
         
         if display_results:
-            # ✅ NUEVO: Verificar si TODOS los lugares están cerrados
-            all_closed = all(not place.get("is_open_now", False) for place in display_results)
-            
-            if all_closed:
-                # Todos los lugares están cerrados - mensaje especial sin mostrar lista
-                if session.get("user_location"):
-                    response = f"Ahorita todos los lugares que tienen {craving} cerca de ti están cerrados 😕\n\n¿Se te antoja algo más o quieres que busque otra cosa?"
-                else:
-                    response = f"Ahorita todos los lugares que tienen {craving} están cerrados 😕\n\n¿Se te antoja algo más o mándame tu ubicación para decirte qué está abierto cerca de ti? 📍"
-                
-                await send_whatsapp_message(wa_id, response)
-                # Limpiar búsqueda ya que no mostramos resultados
-                session["last_search"] = None
-                session["last_results"] = []
-                return
-            
-            # ✅ FASE 5: Guardar TODOS los resultados para paginación
+            # Ya solo tenemos lugares abiertos
+            # ✅ FASE 5: Guardar TODOS los resultados ABIERTOS para paginación
             session["last_search"] = {
                 "craving": craving,
                 "needs_location": needs_location,
-                "all_results": results,  # TODOS los resultados
+                "all_results": open_results,  # TODOS los resultados ABIERTOS
                 "shown_count": len(display_results),  # Cuántos ya mostró
                 "timestamp": time.time()
             }
@@ -2408,8 +2392,8 @@ async def handle_text_message(wa_id: str, text: str, phone_number_id: str = None
             
             results_list = format_results_list(display_results, session["language"])
             
-            # ✅ FASE 5: Calcular opciones restantes
-            remaining = len(results) - len(display_results)
+            # ✅ FASE 5: Calcular opciones restantes (solo abiertos)
+            remaining = len(open_results) - len(display_results)
             
             # ✅ SIEMPRE mostrar la lista, incluso si hay solo 1 resultado
             # Mensaje diferente si solo hay 1 resultado vs múltiples
@@ -2429,10 +2413,11 @@ async def handle_text_message(wa_id: str, text: str, phone_number_id: str = None
             
             await send_whatsapp_message(wa_id, response)
         else:
+            # No hay lugares abiertos - mensaje especial
             if session.get("user_location"):
-                response = f"Ay no, no encontré {craving} cerca de ti 😕 ¿Tienes ganas de algo más?"
+                response = f"Ahorita todos los lugares que tienen {craving} cerca de ti están cerrados 😕\n\n¿Se te antoja algo más o quieres que busque otra cosa?"
             else:
-                response = f"No tengo {craving} en mi lista. ¿Qué tal otra cosa o me mandas tu ubicación?"
+                response = f"Ahorita todos los lugares que tienen {craving} están cerrados 😕\n\n¿Se te antoja algo más o mándame tu ubicación para decirte qué está abierto cerca de ti? 📍"
             
             await send_whatsapp_message(wa_id, response)
         return
