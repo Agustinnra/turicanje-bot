@@ -2606,6 +2606,7 @@ async def handle_location_message(wa_id: str, lat: float, lng: float, phone_numb
             
             # Buscar lugares cercanos SIN filtro de craving, solo abiertos
             try:
+                print(f"[UBICACIÓN-DEBUG] Iniciando búsqueda de lugares cercanos abiertos")
                 sql = """
                 SELECT id, name, category, products, priority, cashback, hours, 
                        address, phone, url_order, imagen_url, url_extra, afiliado,
@@ -2622,9 +2623,11 @@ async def handle_location_message(wa_id: str, lat: float, lng: float, phone_numb
                 LIMIT 20;
                 """
                 
+                print(f"[UBICACIÓN-DEBUG] Ejecutando query con lat={lat}, lng={lng}")
                 with get_pool().connection() as conn, conn.cursor(row_factory=psycopg.rows.dict_row) as cur:
                     cur.execute(sql, (lat, lng, lat))
                     rows = cur.fetchall()
+                    print(f"[UBICACIÓN-DEBUG] Query retornó {len(rows)} lugares cercanos")
                     
                     nearby_results = []
                     for row in rows:
@@ -2637,11 +2640,17 @@ async def handle_location_message(wa_id: str, lat: float, lng: float, phone_numb
                         # Solo agregar si está abierto
                         if place["is_open_now"]:
                             nearby_results.append(place)
+                            print(f"[UBICACIÓN-DEBUG] ✅ {place['name']} está ABIERTO")
+                        else:
+                            print(f"[UBICACIÓN-DEBUG] ❌ {place['name']} está CERRADO")
+                    
+                    print(f"[UBICACIÓN-DEBUG] Total lugares abiertos encontrados: {len(nearby_results)}")
                     
                     # Limitar a 3 para primera página
                     nearby_display = nearby_results[:PAGINATION_SIZE]
                     
                     if nearby_display:
+                        print(f"[UBICACIÓN-DEBUG] Mostrando {len(nearby_display)} lugares")
                         # Guardar resultados
                         session["last_search"] = {
                             "craving": "lugares abiertos",  # Genérico
@@ -2661,14 +2670,19 @@ async def handle_location_message(wa_id: str, lat: float, lng: float, phone_numb
                         if remaining > 0:
                             response += f"\n\n💬 Tengo {remaining} opciones más. Escribe 'más' para verlas 😊"
                         
+                        print(f"[UBICACIÓN-DEBUG] Enviando respuesta con {len(nearby_display)} lugares")
                         await send_whatsapp_message(wa_id, response, phone_number_id)
+                        print(f"[UBICACIÓN-DEBUG] Respuesta enviada exitosamente")
                     else:
+                        print(f"[UBICACIÓN-DEBUG] No hay lugares abiertos cerca")
                         # No hay NADA abierto cerca
                         response = f"No encontré lugares abiertos cerca de ti ahorita 😕 ¿Quieres buscar algo específico?"
                         await send_whatsapp_message(wa_id, response, phone_number_id)
                     
             except Exception as e:
-                print(f"[UBICACIÓN] Error buscando lugares abiertos: {e}")
+                print(f"[UBICACIÓN] ❌ ERROR buscando lugares abiertos: {e}")
+                import traceback
+                traceback.print_exc()
                 response = f"No encontré {craving} cerca de ti 😕 ¿Qué tal si probamos con otra cosa?"
                 await send_whatsapp_message(wa_id, response, phone_number_id)
 
