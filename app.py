@@ -8,7 +8,7 @@ import random
 import time
 import math
 from typing import Dict, Optional, Any, List, Tuple
-from datetime import datetime, time as dt_time
+from datetime import datetime, time as dt_time, timedelta
 
 
 import pytz
@@ -117,15 +117,20 @@ def is_open_now_by_day(place: dict) -> bool:
             open_t = parse_time(open_time)
             close_t = parse_time(close_time)
             
-            open_dt = tz.localize(datetime.combine(now.date(), open_t))
-            close_dt = tz.localize(datetime.combine(now.date(), close_t))
+            # ✅ FIX: Calcular la fecha del día que estamos verificando
+            # Si estamos verificando el día anterior, restar un día
+            days_diff = day_index - weekday
+            check_date = now.date() + timedelta(days=days_diff)
+            
+            open_dt = tz.localize(datetime.combine(check_date, open_t))
+            close_dt = tz.localize(datetime.combine(check_date, close_t))
 
             # Si cierra "antes" de abrir, cruza medianoche
             if close_dt <= open_dt:
                 close_dt = close_dt.replace(day=close_dt.day + 1)
 
             is_open = open_dt <= now <= close_dt
-            print(f"[OPEN-CHECK-DEBUG] {place_name} - is_open={is_open}, now={now.time()}, open={open_t}, close={close_t}")
+            print(f"[OPEN-CHECK-DEBUG] {place_name} - is_open={is_open}, now={now.time()}, open={open_t}, close={close_t}, check_date={check_date}")
             return is_open
         except Exception as e:
             print(f"[OPEN-CHECK-DEBUG] {place_name} - ERROR: {e}")
