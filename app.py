@@ -1648,12 +1648,12 @@ def get_smart_response_message(results: List[Dict[str, Any]], craving: str, lang
     if count == 0:
         return f"No encontré lugares que tengan {craving}" + (" cerca de ti" if has_location else "") + " 😕"
     elif count == 1:
-        place_name = results[0].get("name", "un lugar")
-        return f"Solo conozco un lugar donde tienen {craving}: {place_name}" + (" cerca de ti" if has_location else "")
+        # ✅ NUEVO: Dar a entender que hay más lugares pero solo 1 está abierto
+        return f"De todos los lugares que conozco que tienen {craving}, solo 1 está abierto ahorita" + (" cerca de ti:" if has_location else ":")
     elif count <= 3:
-        return f"Te conseguí {count} lugares que tienen {craving}" + (" cerca de ti:" if has_location else ":")
+        return f"De todos los lugares que conozco que tienen {craving}, {count} están abiertos ahorita" + (" cerca de ti:" if has_location else ":")
     else:
-        return f"Mira, te conseguí {count} opciones de {craving}" + (" cerca de ti:" if has_location else ":")
+        return f"De todos los lugares que conozco que tienen {craving}, te conseguí {count} que están abiertos ahorita" + (" cerca de ti:" if has_location else ":")
 
 # ================= SALUDOS CON IA =================
 async def generate_humanized_greeting(name: str, language: str) -> str:
@@ -2479,7 +2479,7 @@ async def handle_text_message(wa_id: str, text: str, phone_number_id: str = None
     
     # OTROS CASOS
     elif intent == "other":
-        response = "Oye, cuéntame qué se te antoja comer y te ayudo a encontrar algo bueno por ahí 😊"
+        response = "Ok, perfecto! Dime qué otra cosa se te antoja y te ayudo a encontrar un lugar 😊"
         await send_whatsapp_message(wa_id, response)
     
     else:
