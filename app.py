@@ -2330,9 +2330,6 @@ async def handle_text_message(wa_id: str, text: str, phone_number_id: str = None
                 response = f"¡Hola! Ahorita todos los lugares que tienen {craving} están cerrados 😕\n\n¿Se te antoja algo más o mándame tu ubicación para decirte qué está abierto cerca de ti? 📍"
             
             await send_whatsapp_message(wa_id, response)
-        else:
-            response = f"¡Hola! Ay no, no tengo {craving} en mi lista. ¿Qué tal si me dices otra cosa que se te antoje o me mandas tu ubicación para ver qué opciones hay por ahí?"
-            await send_whatsapp_message(wa_id, response)
         return
     
     # BÚSQUEDAS REGULARES: Solo craving sin saludo en sesión existente
