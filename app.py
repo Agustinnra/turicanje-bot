@@ -1209,7 +1209,7 @@ def search_places_without_location(craving: str, limit: int = 10) -> List[Dict[s
         ORDER BY 
             (SELECT COUNT(*) FROM jsonb_array_elements_text(categories) as item
              WHERE LOWER(item) LIKE %s) DESC,
-            CASE WHEN afiliado = true THEN 1 ELSE 0 END DESC,
+            CASE WHEN cashback = true THEN 1 ELSE 0 END DESC,
             priority DESC,
             id ASC
         LIMIT %s;
@@ -1370,7 +1370,7 @@ def search_places_with_location(craving: str, user_lat: float, user_lng: float, 
         SELECT * FROM distances
         ORDER BY 
             product_match_score DESC,
-            CASE WHEN afiliado = true THEN 1 ELSE 0 END DESC,
+            CASE WHEN cashback = true THEN 1 ELSE 0 END DESC,
             priority DESC,
             distance_meters ASC
         LIMIT %s;
@@ -2214,10 +2214,15 @@ async def handle_text_message(wa_id: str, text: str, phone_number_id: str = None
     if re.match(r'^\s*\d+\s*$', text) and session.get("last_results"):
         try:
             selected_number = int(text.strip())
-            results = session.get("last_results", [])
+            # ✅ FIX: Usar ALL los resultados, no solo los 3 mostrados
+            all_results = session.get("last_search", {}).get("all_results", [])
+            
+            # Si no hay all_results, usar last_results (compatibilidad)
+            if not all_results:
+                all_results = session.get("last_results", [])
 
-            if 1 <= selected_number <= len(results):
-                selected_place = results[selected_number - 1]
+            if 1 <= selected_number <= len(all_results):
+                selected_place = all_results[selected_number - 1]
                 
                 # ✅ FASE 5: Trackear que hizo click en un lugar
                 session["clicked_link"] = True
@@ -2253,7 +2258,7 @@ async def handle_text_message(wa_id: str, text: str, phone_number_id: str = None
 
                 return
             else:
-                response = f"Elige un número del 1 al {len(results)}, porfa 😊"
+                response = f"Elige un número del 1 al {len(all_results)}, porfa 😊"
                 await send_whatsapp_message(wa_id, response)
                 return
         except ValueError:
