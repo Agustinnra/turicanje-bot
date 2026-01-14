@@ -2265,6 +2265,27 @@ async def handle_text_message(wa_id: str, text: str, phone_number_id: str = None
             pass
 
     
+    # ✅ NUEVO: VERIFICAR SI EL CRAVING ES UN NOMBRE DE NEGOCIO PRIMERO
+    # Esto captura casos como "mándame info de dos tapas" donde la IA no detectó business_search
+    if craving and not business_name:
+        place_by_name = search_place_by_name(craving)
+        if place_by_name:
+            print(f"[SMART-SEARCH] '{craving}' es un nombre de negocio, no comida")
+            session["is_new"] = False
+            
+            # Enviar detalles del negocio directamente
+            details = format_place_details(place_by_name, session["language"])
+            await send_whatsapp_message(wa_id, details, phone_number_id)
+            
+            # Enviar imagen si existe
+            image_url = place_by_name.get("imagen_url")
+            if image_url:
+                await send_whatsapp_image(wa_id, image_url, phone_number_id=phone_number_id)
+            
+            # Guardar en sesión
+            session["last_results"] = [place_by_name]
+            return
+    
     # ESCENARIOS 2 y 3: Hay craving con saludo
     if craving and (is_new_session or (has_greeting_words and craving)):
         session["is_new"] = False
