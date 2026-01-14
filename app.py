@@ -1169,7 +1169,19 @@ def search_place_by_name(business_name: str) -> Optional[Dict[str, Any]]:
             if row:
                 place = dict(row)
                 place["products"] = list(place.get("products") or [])
-                place["hours"] = dict(place.get("hours") or {})
+                # ✅ FIX: Manejar hours correctamente (puede ser dict, string JSON, o None)
+                hours_raw = place.get("hours")
+                if hours_raw is None:
+                    place["hours"] = {}
+                elif isinstance(hours_raw, dict):
+                    place["hours"] = hours_raw
+                elif isinstance(hours_raw, str):
+                    try:
+                        place["hours"] = json.loads(hours_raw)
+                    except:
+                        place["hours"] = {}
+                else:
+                    place["hours"] = {}
                 print(f"[DB-SEARCH-NAME] Encontrado: {place['name']}")
                 return place
             else:
