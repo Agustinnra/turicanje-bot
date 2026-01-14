@@ -1207,10 +1207,10 @@ def search_places_without_location(craving: str, limit: int = 10) -> List[Dict[s
         )
         AND {today_filter}
         ORDER BY 
-            (SELECT COUNT(*) FROM jsonb_array_elements_text(categories) as item
-             WHERE LOWER(item) LIKE %s) DESC,
             CASE WHEN cashback = true THEN 1 ELSE 0 END DESC,
             priority DESC,
+            (SELECT COUNT(*) FROM jsonb_array_elements_text(categories) as item
+             WHERE LOWER(item) LIKE %s) DESC,
             id ASC
         LIMIT %s;
         """
@@ -1290,10 +1290,10 @@ async def search_places_without_location_ai(craving: str, language: str, wa_id: 
         )
         AND {today_filter}
         ORDER BY 
+            CASE WHEN cashback = true THEN 1 ELSE 0 END DESC,
+            priority DESC,
             (SELECT COUNT(*) FROM jsonb_array_elements_text(categories) as item
              WHERE {or_conditions}) DESC,
-            CASE WHEN afiliado = true THEN 1 ELSE 0 END DESC,
-            priority DESC,
             id ASC
         LIMIT %(limit)s;
         """
@@ -1369,9 +1369,9 @@ def search_places_with_location(craving: str, user_lat: float, user_lng: float, 
         )
         SELECT * FROM distances
         ORDER BY 
-            product_match_score DESC,
             CASE WHEN cashback = true THEN 1 ELSE 0 END DESC,
             priority DESC,
+            product_match_score DESC,
             distance_meters ASC
         LIMIT %s;
         """
@@ -1463,9 +1463,9 @@ async def search_places_with_location_ai(craving: str, user_lat: float, user_lng
         )
         SELECT * FROM distances
         ORDER BY 
-            product_match_score DESC,
-            CASE WHEN afiliado = true THEN 1 ELSE 0 END DESC,
+            CASE WHEN cashback = true THEN 1 ELSE 0 END DESC,
             priority DESC,
+            product_match_score DESC,
             distance_meters ASC
         LIMIT %(limit)s;
         """
