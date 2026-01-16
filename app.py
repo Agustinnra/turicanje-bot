@@ -7,6 +7,7 @@ import re
 import random
 import time
 import math
+import asyncio
 from typing import Dict, Optional, Any, List, Tuple
 from datetime import datetime, time as dt_time, timedelta
 
@@ -33,7 +34,6 @@ from analytics_functions import (
 
 # ===== BOT INTERACTIONS LOGGING =====
 # Guarda conversaciones completas en bot_interactions
-import asyncio
 
 async def log_bot_interaction(
     wa_id: str,
@@ -857,7 +857,6 @@ def get_or_create_user_session(wa_id: str) -> Dict[str, Any]:
     print(f"[SESSION] Nueva sesión: {wa_id} -> {name} (es)")
     
     # ✅ ANALYTICS: Log session start
-    import asyncio
     try:
         is_new = True
         asyncio.create_task(update_unique_user(wa_id, get_pool()))
@@ -912,7 +911,6 @@ async def send_goodbye_message(wa_id: str, session: dict):
         
         # ✅ ANALYTICS: Log goodbye sent
         try:
-            import asyncio
             asyncio.create_task(log_goodbye_sent(
                 wa_id=wa_id,
                 session_id=session.get("session_id", "unknown"),
@@ -932,7 +930,6 @@ def check_idle_sessions():
     Verifica sesiones inactivas y envía mensajes de despedida.
     Se ejecuta cada 30 segundos en background.
     """
-    import asyncio
     
     current_time = time.time()
     sessions_to_goodbye = []
@@ -2339,7 +2336,6 @@ async def handle_text_message(wa_id: str, text: str, phone_number_id: str = None
                 
                 # ✅ ANALYTICS: Log click
                 try:
-                    import asyncio
                     asyncio.create_task(log_click(
                         wa_id=wa_id,
                         session_id=session["session_id"],
@@ -2426,7 +2422,6 @@ async def handle_text_message(wa_id: str, text: str, phone_number_id: str = None
         
         # ✅ ANALYTICS: Log search
         try:
-            import asyncio
             asyncio.create_task(log_search(
                 wa_id=wa_id,
                 session_id=session["session_id"],
@@ -2546,7 +2541,6 @@ async def handle_text_message(wa_id: str, text: str, phone_number_id: str = None
         
         # ✅ ANALYTICS: Log search
         try:
-            import asyncio
             asyncio.create_task(log_search(
                 wa_id=wa_id,
                 session_id=session["session_id"],
@@ -2654,7 +2648,6 @@ async def handle_text_message(wa_id: str, text: str, phone_number_id: str = None
         
         # ✅ ANALYTICS: Log pagination
         try:
-            import asyncio
             asyncio.create_task(log_pagination(
                 wa_id=wa_id,
                 session_id=session["session_id"],
@@ -2723,7 +2716,6 @@ async def handle_location_message(wa_id: str, lat: float, lng: float, phone_numb
     
     # ✅ ANALYTICS: Log location shared
     try:
-        import asyncio
         asyncio.create_task(log_location_shared(
             wa_id=wa_id,
             session_id=session["session_id"],
@@ -2747,7 +2739,6 @@ async def handle_location_message(wa_id: str, lat: float, lng: float, phone_numb
 
         # ✅ ANALYTICS: Log search with location
         try:
-            import asyncio
             asyncio.create_task(log_search(
                 wa_id=wa_id,
                 session_id=session["session_id"],
