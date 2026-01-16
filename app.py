@@ -31,6 +31,74 @@ from analytics_functions import (
     update_unique_user
 )
 
+# ===== BOT INTERACTIONS LOGGING =====
+# Guarda conversaciones completas en bot_interactions
+import asyncio
+
+async def log_bot_interaction(
+    wa_id: str,
+    session_id: str,
+    user_message: str = None,
+    bot_response: str = None,
+    message_type: str = "text",
+    intent: str = None,
+    search_query: str = None,
+    search_results: list = None,
+    selected_place_id: str = None,
+    user_location: dict = None
+):
+    """
+    Guarda la interacción en bot_interactions.
+    NO bloquea el flujo principal si falla.
+    """
+    # ✅ FILTRO: No guardar para usuarios de prueba
+    if is_excluded_user(wa_id):
+        return
+    
+    try:
+        pool = get_pool()
+        if not pool:
+            return
+            
+        sql = """
+        INSERT INTO bot_interactions (
+            session_id, user_phone, user_message, bot_response,
+            message_type, intent, search_query, search_results,
+            selected_place_id, user_location, created_at
+        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())
+        """
+        
+        # Limitar tamaño de respuestas para no llenar la BD
+        user_msg_limited = (user_message[:500] if user_message else None)
+        bot_resp_limited = (bot_response[:2000] if bot_response else None)
+        
+        # Convertir listas/dicts a JSON
+        search_results_json = json.dumps(search_results[:5]) if search_results else None
+        user_location_json = json.dumps(user_location) if user_location else None
+        
+        with pool.connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(sql, (
+                    session_id,
+                    wa_id,
+                    user_msg_limited,
+                    bot_resp_limited,
+                    message_type,
+                    intent,
+                    search_query,
+                    search_results_json,
+                    selected_place_id,
+                    user_location_json
+                ))
+                conn.commit()
+        
+        print(f"[BOT-LOG] ✅ Guardado: {wa_id[:6]}*** - {intent or message_type}")
+        
+    except Exception as e:
+        # ⚠️ IMPORTANTE: NO lanzar error, solo logear
+        print(f"[BOT-LOG] ⚠️ Error (no crítico): {e}")
+# ===== FIN BOT INTERACTIONS LOGGING =====
+
 DAY_MAP = {
     0: ("mon_open", "mon_close"),
     1: ("tue_open", "tue_close"),
@@ -2188,6 +2256,16 @@ async def handle_text_message(wa_id: str, text: str, phone_number_id: str = None
             details = format_place_details(place, session["language"])
             await send_whatsapp_message(wa_id, details, phone_number_id)
             
+            # 📝 Log de detalle de negocio
+            asyncio.create_task(log_bot_interaction(
+                wa_id=wa_id,
+                session_id=session.get("session_id", str(uuid.uuid4())),
+                user_message=business_name,
+                bot_response=details[:500],
+                intent="business_detail",
+                selected_place_id=place.get("id")
+            ))
+            
             # Enviar imagen si existe
             image_url = place.get("imagen_url")
             if image_url:
@@ -2199,6 +2277,15 @@ async def handle_text_message(wa_id: str, text: str, phone_number_id: str = None
             # No encontrado - SIEMPRE EN ESPAÑOL
             response = f"No encontré '{business_name}' en mi lista 😕 ¿Quieres que busque algo más o me dices qué tipo de comida te gustaría?"
             await send_whatsapp_message(wa_id, response, phone_number_id)
+            
+            # 📝 Log de negocio no encontrado
+            asyncio.create_task(log_bot_interaction(
+                wa_id=wa_id,
+                session_id=session.get("session_id", str(uuid.uuid4())),
+                user_message=business_name,
+                bot_response=response,
+                intent="business_not_found"
+            ))
         
         return
     
@@ -2219,6 +2306,16 @@ async def handle_text_message(wa_id: str, text: str, phone_number_id: str = None
         # Saludo en español - continuar normal
         greeting = await generate_humanized_greeting(session["name"], session["language"])
         await send_whatsapp_message(wa_id, greeting, phone_number_id)
+        
+        # 📝 Log de saludo
+        asyncio.create_task(log_bot_interaction(
+            wa_id=wa_id,
+            session_id=session.get("session_id", str(uuid.uuid4())),
+            user_message=text,
+            bot_response=greeting,
+            intent="greeting"
+        ))
+        
         session["is_new"] = False
         return
     
@@ -2263,6 +2360,16 @@ async def handle_text_message(wa_id: str, text: str, phone_number_id: str = None
                 
                 details = format_place_details(selected_place, session["language"])
                 await send_whatsapp_message(wa_id, details, phone_number_id)
+                
+                # 📝 Log de selección por número
+                asyncio.create_task(log_bot_interaction(
+                    wa_id=wa_id,
+                    session_id=session.get("session_id", str(uuid.uuid4())),
+                    user_message=str(selected_number),
+                    bot_response=details[:500],
+                    intent="selection",
+                    selected_place_id=selected_place.get("id")
+                ))
 
                 image_url = selected_place.get("imagen_url")
                 if image_url:
@@ -2392,6 +2499,17 @@ async def handle_text_message(wa_id: str, text: str, phone_number_id: str = None
                 response += f"\n\n💬 Tengo {remaining} opciones más. Escribe 'más' para verlas 😊"
             
             await send_whatsapp_message(wa_id, response)
+            
+            # 📝 Log de resultados de búsqueda
+            asyncio.create_task(log_bot_interaction(
+                wa_id=wa_id,
+                session_id=session.get("session_id", str(uuid.uuid4())),
+                user_message=craving,
+                bot_response=response[:500],
+                intent="search",
+                search_query=craving,
+                search_results=[{"id": p.get("id"), "name": p.get("name")} for p in display_results[:5]] if display_results else None
+            ))
         else:
             # No hay lugares abiertos - mensaje especial
             # ✅ NUEVO: Determinar si debe incluir presentación completa
@@ -2488,6 +2606,17 @@ async def handle_text_message(wa_id: str, text: str, phone_number_id: str = None
                 response += f"\n\n💬 Tengo {remaining} opciones más. Escribe 'más' para verlas 😊"
             
             await send_whatsapp_message(wa_id, response)
+            
+            # 📝 Log de resultados de búsqueda regular
+            asyncio.create_task(log_bot_interaction(
+                wa_id=wa_id,
+                session_id=session.get("session_id", str(uuid.uuid4())),
+                user_message=craving,
+                bot_response=response[:500],
+                intent="search",
+                search_query=craving,
+                search_results=[{"id": p.get("id"), "name": p.get("name")} for p in display_results[:5]] if display_results else None
+            ))
         else:
             # No hay lugares abiertos - mensaje especial
             if session.get("user_location"):
@@ -2547,6 +2676,17 @@ async def handle_text_message(wa_id: str, text: str, phone_number_id: str = None
             response = f"Aquí van las últimas {len(next_batch)} opciones:\n\n{results_list}\n\nMándame el número del que te guste 😊"
         
         await send_whatsapp_message(wa_id, response)
+        
+        # 📝 Log de paginación
+        asyncio.create_task(log_bot_interaction(
+            wa_id=wa_id,
+            session_id=session.get("session_id", str(uuid.uuid4())),
+            user_message="más",
+            bot_response=response[:500],
+            intent="pagination",
+            search_results=[{"id": p.get("id"), "name": p.get("name")} for p in next_batch[:5]] if next_batch else None
+        ))
+        
         return
     
     # ✅ FASE 5: PAGINACIÓN - "ya no quiero más"
