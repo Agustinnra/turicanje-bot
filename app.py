@@ -1194,14 +1194,15 @@ business_name only has value if they mentioned a specific business name."""
 
 def search_place_by_name(business_name: str) -> Optional[Dict[str, Any]]:
     """
-    Busca un negocio específico por nombre exacto o similar
-    Retorna el primer resultado que coincida
+    Busca un negocio específico por nombre EXACTO (ignorando mayúsculas/acentos)
+    Solo retorna si el nombre coincide exactamente, no si solo contiene la palabra
     """
     if not business_name:
         return None
     
     try:
-        # Búsqueda por similitud de nombre (case-insensitive)
+        # ✅ BÚSQUEDA EXACTA - Solo coincide si el nombre es igual
+        # Normaliza quitando acentos y comparando en minúsculas
         sql = """
         SELECT id, name, category, products, priority, cashback, hours, 
                address, phone, url_order, imagen_url, url_extra, afiliado,
@@ -1210,22 +1211,15 @@ def search_place_by_name(business_name: str) -> Optional[Dict[str, Any]]:
                thu_open, thu_close, fri_open, fri_close, sat_open, sat_close,
                sun_open, sun_close
         FROM public.places 
-        WHERE LOWER(name) LIKE %(search_pattern)s
-        ORDER BY 
-            CASE WHEN LOWER(name) = %(exact_match)s THEN 0 ELSE 1 END,
-            LENGTH(name) ASC
+        WHERE LOWER(TRANSLATE(name, 'áéíóúüñÁÉÍÓÚÜÑ', 'aeiouunAEIOUUN')) = LOWER(TRANSLATE(%(exact_name)s, 'áéíóúüñÁÉÍÓÚÜÑ', 'aeiouunAEIOUUN'))
         LIMIT 1;
         """
         
-        search_pattern = f"%{business_name.lower()}%"
-        exact_match = business_name.lower()
-        
         params = {
-            "search_pattern": search_pattern,
-            "exact_match": exact_match
+            "exact_name": business_name.strip()
         }
         
-        print(f"[DB-SEARCH-NAME] Buscando negocio: '{business_name}'")
+        print(f"[DB-SEARCH-NAME] Buscando negocio EXACTO: '{business_name}'")
         
         with get_pool().connection() as conn, conn.cursor(row_factory=psycopg.rows.dict_row) as cur:
             cur.execute(sql, params)
@@ -1247,10 +1241,10 @@ def search_place_by_name(business_name: str) -> Optional[Dict[str, Any]]:
                         place["hours"] = {}
                 else:
                     place["hours"] = {}
-                print(f"[DB-SEARCH-NAME] Encontrado: {place['name']}")
+                print(f"[DB-SEARCH-NAME] ✅ Encontrado EXACTO: {place['name']}")
                 return place
             else:
-                print(f"[DB-SEARCH-NAME] No encontrado: '{business_name}'")
+                print(f"[DB-SEARCH-NAME] ❌ No coincide exacto: '{business_name}'")
                 return None
             
     except Exception as e:
