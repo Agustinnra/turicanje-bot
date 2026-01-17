@@ -1,7 +1,10 @@
-
-.env
-.env.local
-app_local.py
+node_modules/
+.next/
+out/
+build/
+dist/
 __pycache__/
 *.pyc
+.env
+.env.local
 .DS_Store
