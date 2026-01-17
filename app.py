@@ -99,6 +99,56 @@ async def log_bot_interaction(
         print(f"[BOT-LOG] ⚠️ Error (no crítico): {e}")
 # ===== FIN BOT INTERACTIONS LOGGING =====
 
+# ===== NORMALIZACIÓN DE BÚSQUEDA =====
+def normalize_search_term(term: str) -> list:
+    """
+    Normaliza un término de búsqueda para manejar plurales y variaciones.
+    Retorna una lista de variaciones a buscar.
+    
+    Ejemplo: "hamburguesas" → ["hamburguesas", "hamburguesa"]
+    Ejemplo: "taco" → ["taco", "tacos"]
+    """
+    if not term:
+        return []
+    
+    term = term.lower().strip()
+    variations = [term]
+    
+    # Reglas para español
+    # Si termina en 's', agregar versión sin 's' (plural → singular)
+    if term.endswith('s') and len(term) > 2:
+        singular = term[:-1]
+        if singular not in variations:
+            variations.append(singular)
+        # Casos especiales: "es" al final (ej: "hamburgueses" → "hamburguesa")
+        if term.endswith('es') and len(term) > 3:
+            singular2 = term[:-2] + 'a'
+            if singular2 not in variations:
+                variations.append(singular2)
+    
+    # Si NO termina en 's', agregar versión con 's' (singular → plural)
+    if not term.endswith('s'):
+        plural = term + 's'
+        if plural not in variations:
+            variations.append(plural)
+        # Casos especiales: agregar "es" (ej: "taco" → "tacos", "pan" → "panes")
+        if term.endswith(('a', 'e', 'i', 'o', 'u')):
+            pass  # Ya agregamos la 's'
+        else:
+            plural_es = term + 'es'
+            if plural_es not in variations:
+                variations.append(plural_es)
+    
+    return variations
+
+def create_search_patterns(craving: str) -> list:
+    """
+    Crea patrones de búsqueda SQL para un término.
+    Retorna lista de patrones LIKE.
+    """
+    variations = normalize_search_term(craving)
+    return [f"%{v}%" for v in variations]
+
 DAY_MAP = {
     0: ("mon_open", "mon_close"),
     1: ("tue_open", "tue_close"),
@@ -1261,8 +1311,14 @@ def search_places_without_location(craving: str, limit: int = 10) -> List[Dict[s
     today_filter = get_today_hours_filter()
     
     try:
-        # Crear patrón de búsqueda
-        search_pattern = f"%{craving.lower()}%"
+        # ✅ NUEVO: Crear variaciones de búsqueda (singular/plural)
+        variations = normalize_search_term(craving)
+        print(f"[DB-SEARCH] Variaciones de '{craving}': {variations}")
+        
+        # Crear condiciones OR para cada variación
+        or_conditions_cat = " OR ".join([f"LOWER(item) LIKE %s" for _ in variations])
+        or_conditions_prod = " OR ".join([f"LOWER(item) LIKE %s" for _ in variations])
+        or_conditions_category = " OR ".join([f"LOWER(category) LIKE %s" for _ in variations])
         
         sql = f"""
         SELECT id, name, category, products, priority, cashback, hours, 
@@ -1275,35 +1331,30 @@ def search_places_without_location(craving: str, limit: int = 10) -> List[Dict[s
         WHERE (
             EXISTS (
                 SELECT 1 FROM jsonb_array_elements_text(categories) as item
-                WHERE LOWER(item) LIKE %s
+                WHERE {or_conditions_cat}
             )
             OR EXISTS (
                 SELECT 1 FROM jsonb_array_elements_text(products) as item
-                WHERE LOWER(item) LIKE %s
+                WHERE {or_conditions_prod}
             )
-            OR LOWER(category) LIKE %s
+            OR ({or_conditions_category})
         )
         AND {today_filter}
         ORDER BY 
             CASE WHEN cashback = true THEN 1 ELSE 0 END DESC,
             priority DESC,
-            (SELECT COUNT(*) FROM jsonb_array_elements_text(categories) as item
-             WHERE LOWER(item) LIKE %s) DESC,
             id ASC
         LIMIT %s;
         """
         
-        params = (search_pattern, search_pattern, search_pattern, search_pattern, limit)
+        # Crear patrones para cada variación
+        patterns = [f"%{v}%" for v in variations]
+        # params: patterns para categories + patterns para products + patterns para category + limit
+        params = tuple(patterns + patterns + patterns + [limit])
         
-        print(f"[DB-SEARCH] FASE 4: Buscando '{craving}' en categories (SEO interno)")
-        print(f"[DEBUG] Search pattern: {search_pattern}")
-        print(f"[DEBUG] Params: {params}")
+        print(f"[DB-SEARCH] FASE 4: Buscando '{craving}' con variaciones: {variations}")
         
         with get_pool().connection() as conn, conn.cursor(row_factory=psycopg.rows.dict_row) as cur:
-            # Debug: Mostrar el query final
-            compiled_query = cur.mogrify(sql, params).decode('utf-8') if hasattr(cur, 'mogrify') else sql
-            print(f"[DEBUG] Compiled SQL: {compiled_query[:500]}...")
-            
             cur.execute(sql, params)
             rows = cur.fetchall()
             
@@ -1423,10 +1474,16 @@ def search_places_with_location(craving: str, user_lat: float, user_lng: float, 
     # ✅ FASE 2: Obtener filtro de horarios del día
     today_filter = get_today_hours_filter()
     
-    # Crear patrón de búsqueda
-    search_pattern = f"%{craving.lower()}%"
-    
     try:
+        # ✅ NUEVO: Crear variaciones de búsqueda (singular/plural)
+        variations = normalize_search_term(craving)
+        print(f"[DB-SEARCH] Variaciones con ubicación de '{craving}': {variations}")
+        
+        # Crear condiciones OR para cada variación
+        or_conditions_cat = " OR ".join([f"LOWER(item) LIKE %s" for _ in variations])
+        or_conditions_prod = " OR ".join([f"LOWER(item) LIKE %s" for _ in variations])
+        or_conditions_category = " OR ".join([f"LOWER(category) LIKE %s" for _ in variations])
+        
         sql = f"""
         WITH distances AS (
             SELECT id, name, category, products, priority, cashback, hours,
@@ -1443,20 +1500,18 @@ def search_places_with_location(craving: str, user_lat: float, user_lng: float, 
                                POWER(SIN(RADIANS((lng - %s) / 2)), 2)
                            ))
                        ELSE 999999
-                   END as distance_meters,
-                   (SELECT COUNT(*) FROM jsonb_array_elements_text(categories) as item
-                    WHERE LOWER(item) LIKE %s) as product_match_score
+                   END as distance_meters
             FROM public.places 
             WHERE (
                 EXISTS (
                     SELECT 1 FROM jsonb_array_elements_text(categories) as item
-                    WHERE LOWER(item) LIKE %s
+                    WHERE {or_conditions_cat}
                 )
                 OR EXISTS (
                     SELECT 1 FROM jsonb_array_elements_text(products) as item
-                    WHERE LOWER(item) LIKE %s
+                    WHERE {or_conditions_prod}
                 )
-                OR LOWER(category) LIKE %s
+                OR ({or_conditions_category})
             )
             AND {today_filter}
         )
@@ -1464,14 +1519,16 @@ def search_places_with_location(craving: str, user_lat: float, user_lng: float, 
         ORDER BY 
             CASE WHEN cashback = true THEN 1 ELSE 0 END DESC,
             priority DESC,
-            product_match_score DESC,
             distance_meters ASC
         LIMIT %s;
         """
         
-        params = (user_lat, user_lat, user_lng, search_pattern, search_pattern, search_pattern, search_pattern, limit)
+        # Crear patrones para cada variación
+        patterns = [f"%{v}%" for v in variations]
+        # params: user_lat, user_lat, user_lng + patterns para categories + patterns para products + patterns para category + limit
+        params = tuple([user_lat, user_lat, user_lng] + patterns + patterns + patterns + [limit])
         
-        print(f"[DB-SEARCH] FASE 4 CON UBICACIÓN: Buscando '{craving}' en categories (SEO interno)")
+        print(f"[DB-SEARCH] FASE 4 CON UBICACIÓN: Buscando '{craving}' con variaciones: {variations}")
         
         with get_pool().connection() as conn, conn.cursor(row_factory=psycopg.rows.dict_row) as cur:
             cur.execute(sql, params)
