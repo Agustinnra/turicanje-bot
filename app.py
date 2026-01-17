@@ -1098,9 +1098,13 @@ REGLAS CRÍTICAS PARA NOMBRES DE NEGOCIOS:
 2. Si tiene palabras que parecen nombres propios (con artículo + nombre único), es negocio → business_search
 3. Nombres típicos de negocios: "El/La [Nombre]", nombres en mayúsculas, nombres compuestos
 
-REGLAS PARA COMIDA:
+REGLAS PARA COMIDA (MUY IMPORTANTE):
+- Extrae SOLO el tipo de comida, SIN adjetivos como "rica", "buena", "deliciosa", "sabrosa"
+- "una hamburguesa rica" → craving: "hamburguesa" (NO "hamburguesa rica")
+- "unos tacos buenos" → craving: "tacos" (NO "tacos buenos")
+- "pizza deliciosa" → craving: "pizza" (NO "pizza deliciosa")
+- "algo rico" → craving: null (es muy vago, no hay comida específica)
 - Si el usuario escribe 1-2 palabras de comida (tacos, pizza, sushi), es búsqueda de comida → search
-- Solo usa intent=other si es claramente una conversación (frases completas, preguntas)
 
 ✅ FASE 5 - PAGINACIÓN (PRIORIDAD ALTA):
 - Si el mensaje es EXACTAMENTE "más", "mas", "Más", "Mas" → SIEMPRE more_options
@@ -1109,7 +1113,7 @@ REGLAS PARA COMIDA:
 
 REGLA CRÍTICA: La palabra "más" o "mas" sola SIEMPRE es more_options, NUNCA other.
 
-Responde SOLO en JSON: {{"intent": "greeting|search|business_search|more_options|no_more_options|other", "craving": "texto exacto o null", "needs_location": true/false, "business_name": "nombre exacto o null"}}
+Responde SOLO en JSON: {{"intent": "greeting|search|business_search|more_options|no_more_options|other", "craving": "SOLO el tipo de comida o null", "needs_location": true/false, "business_name": "nombre exacto o null"}}
 
 Intents:
 - greeting: saludos iniciales (hola, buenos días, etc)
@@ -1126,10 +1130,14 @@ Ejemplos de NEGOCIOS (business_search):
 - "Albahaca Gourmet" → {{"intent": "business_search", "craving": null, "needs_location": false, "business_name": "Albahaca Gourmet"}}
 - "mándame info de Starbucks" → {{"intent": "business_search", "craving": null, "needs_location": false, "business_name": "Starbucks"}}
 
-Ejemplos de COMIDA (search):
+Ejemplos de COMIDA (search) - EXTRAE SOLO EL TIPO:
 - "tacos" → {{"intent": "search", "craving": "tacos", "needs_location": false, "business_name": null}}
 - "pizza" → {{"intent": "search", "craving": "pizza", "needs_location": false, "business_name": null}}
-- "algo rico" → {{"intent": "search", "craving": "algo rico", "needs_location": false, "business_name": null}}
+- "una hamburguesa rica" → {{"intent": "search", "craving": "hamburguesa", "needs_location": false, "business_name": null}}
+- "quiero unos tacos buenos" → {{"intent": "search", "craving": "tacos", "needs_location": false, "business_name": null}}
+- "antojo de sushi" → {{"intent": "search", "craving": "sushi", "needs_location": false, "business_name": null}}
+- "se me antoja pizza" → {{"intent": "search", "craving": "pizza", "needs_location": false, "business_name": null}}
+- "algo rico" → {{"intent": "other", "craving": null, "needs_location": false, "business_name": null}}
 
 Ejemplos de PAGINACIÓN (more_options / no_more_options):
 - "más" → {{"intent": "more_options", "craving": null, "needs_location": false, "business_name": null}}
