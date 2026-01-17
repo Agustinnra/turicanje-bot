@@ -1309,27 +1309,132 @@ def search_place_by_name(business_name: str) -> Optional[Dict[str, Any]]:
         print(f"[DB-SEARCH-NAME] Error: {e}")
         return None
 
-def search_places_without_location(craving: str, limit: int = 10) -> List[Dict[str, Any]]:
-    """NUEVO ORDEN: producto -> afiliado -> prioridad -> id
-    FASE 2: Solo muestra lugares con horarios del día actual"""
+# ===========================================================================
+# SECCIÓN 1: NUEVA FUNCIÓN - AGREGAR ANTES DE search_places_without_location
+# (Aprox. línea 1310 de tu app.py)
+# ===========================================================================
+
+def search_exact_in_categories(craving: str, limit: int = 10) -> List[Dict[str, Any]]:
+    """
+    PASO 2 DEL FLUJO SEO: Búsqueda EXACTA en la columna categories.
+    
+    Busca coincidencia EXACTA del término en el array de categories.
+    NO usa LIKE, busca el elemento exacto en el array.
+    
+    Ejemplo: "hamburguesas deliciosas" 
+    - Si algún negocio tiene exactamente "hamburguesas deliciosas" en categories → lo encuentra
+    - Si solo tiene "hamburguesas" → NO lo encuentra (eso es para el paso 3)
+    
+    Aplica orden: cashback DESC → priority DESC → id ASC
+    """
     if not craving:
         return []
     
-    # ✅ FASE 2: Obtener filtro de horarios del día
+    # ✅ Obtener filtro de horarios del día
     today_filter = get_today_hours_filter()
     
     try:
-        # ✅ NUEVO: Crear variaciones de búsqueda (singular/plural)
+        # Normalizar el término para búsqueda (minúsculas)
+        search_term = craving.lower().strip()
+        
+        # También buscar variaciones singular/plural para coincidencia exacta
+        variations = normalize_search_term(craving)
+        
+        # Crear condiciones para coincidencia EXACTA (no LIKE)
+        # Usamos = en lugar de LIKE para que sea exacto
+        exact_conditions = " OR ".join([f"LOWER(item) = %s" for _ in variations])
+        
+        sql = f"""
+        SELECT id, name, category, products, categories, priority, cashback, hours, 
+               address, phone, url_order, imagen_url, url_extra, afiliado,
+               lat, lng, timezone, delivery,
+               mon_open, mon_close, tue_open, tue_close, wed_open, wed_close,
+               thu_open, thu_close, fri_open, fri_close, sat_open, sat_close,
+               sun_open, sun_close
+        FROM public.places 
+        WHERE EXISTS (
+            SELECT 1 FROM jsonb_array_elements_text(categories) as item
+            WHERE {exact_conditions}
+        )
+        AND {today_filter}
+        ORDER BY 
+            CASE WHEN cashback = true THEN 1 ELSE 0 END DESC,
+            priority DESC,
+            id ASC
+        LIMIT %s;
+        """
+        
+        # Parámetros: variaciones exactas (sin %) + limit
+        params = tuple(variations + [limit])
+        
+        print(f"[DB-SEARCH-SEO] PASO 2: Buscando EXACTO en categories: {variations}")
+        
+        with get_pool().connection() as conn, conn.cursor(row_factory=psycopg.rows.dict_row) as cur:
+            cur.execute(sql, params)
+            rows = cur.fetchall()
+            
+            results = []
+            for row in rows:
+                place = dict(row)
+                place["products"] = list(place.get("products") or [])
+                place["categories"] = list(place.get("categories") or [])
+                place["is_open_now"] = is_open_now_by_day(place)
+                results.append(place)
+            
+            if results:
+                print(f"[DB-SEARCH-SEO] ✅ PASO 2: Encontrados {len(results)} con coincidencia EXACTA en categories")
+            else:
+                print(f"[DB-SEARCH-SEO] ❌ PASO 2: No hay coincidencia exacta en categories")
+            
+            return results
+            
+    except Exception as e:
+        print(f"[DB-SEARCH-SEO] Error en búsqueda exacta categories: {e}")
+        return []
+
+def search_places_without_location(craving: str, limit: int = 10) -> List[Dict[str, Any]]:
+    """
+    FLUJO SEO COMPLETO (3 PASOS):
+    
+    PASO 1: Búsqueda EXACTA por nombre (se hace antes de llamar esta función)
+    PASO 2: Búsqueda EXACTA en categories → Si encuentra, retorna solo esos
+    PASO 3: Búsqueda AMPLIA con LIKE en categories/products/category
+    
+    Orden final: cashback DESC → priority DESC → id ASC
+    """
+    if not craving:
+        return []
+    
+    # ═══════════════════════════════════════════════════════════════
+    # PASO 2: Búsqueda EXACTA en categories (SEO)
+    # ═══════════════════════════════════════════════════════════════
+    exact_results = search_exact_in_categories(craving, limit)
+    
+    if exact_results:
+        # ✅ Encontró coincidencia exacta → retornar SOLO esos
+        print(f"[DB-SEARCH-SEO] ✅ FLUJO: Usando resultados EXACTOS de categories ({len(exact_results)})")
+        return exact_results
+    
+    # ═══════════════════════════════════════════════════════════════
+    # PASO 3: Búsqueda AMPLIA con LIKE (fallback)
+    # ═══════════════════════════════════════════════════════════════
+    print(f"[DB-SEARCH-SEO] PASO 3: No hay exacto, buscando AMPLIO con LIKE...")
+    
+    # ✅ Obtener filtro de horarios del día
+    today_filter = get_today_hours_filter()
+    
+    try:
+        # ✅ Crear variaciones de búsqueda (singular/plural)
         variations = normalize_search_term(craving)
         print(f"[DB-SEARCH] Variaciones de '{craving}': {variations}")
         
-        # Crear condiciones OR para cada variación
+        # Crear condiciones OR para cada variación (con LIKE para búsqueda amplia)
         or_conditions_cat = " OR ".join([f"LOWER(item) LIKE %s" for _ in variations])
         or_conditions_prod = " OR ".join([f"LOWER(item) LIKE %s" for _ in variations])
         or_conditions_category = " OR ".join([f"LOWER(category) LIKE %s" for _ in variations])
         
         sql = f"""
-        SELECT id, name, category, products, priority, cashback, hours, 
+        SELECT id, name, category, products, categories, priority, cashback, hours, 
                address, phone, url_order, imagen_url, url_extra, afiliado,
                lat, lng, timezone, delivery,
                mon_open, mon_close, tue_open, tue_close, wed_open, wed_close,
@@ -1355,12 +1460,12 @@ def search_places_without_location(craving: str, limit: int = 10) -> List[Dict[s
         LIMIT %s;
         """
         
-        # Crear patrones para cada variación
+        # Crear patrones LIKE para cada variación
         patterns = [f"%{v}%" for v in variations]
         # params: patterns para categories + patterns para products + patterns para category + limit
         params = tuple(patterns + patterns + patterns + [limit])
         
-        print(f"[DB-SEARCH] FASE 4: Buscando '{craving}' con variaciones: {variations}")
+        print(f"[DB-SEARCH-SEO] PASO 3: Buscando AMPLIO '{craving}' con patrones: {patterns}")
         
         with get_pool().connection() as conn, conn.cursor(row_factory=psycopg.rows.dict_row) as cur:
             cur.execute(sql, params)
@@ -1370,11 +1475,11 @@ def search_places_without_location(craving: str, limit: int = 10) -> List[Dict[s
             for row in rows:
                 place = dict(row)
                 place["products"] = list(place.get("products") or [])
+                place["categories"] = list(place.get("categories") or [])
                 place["is_open_now"] = is_open_now_by_day(place)
-
                 results.append(place)
             
-            print(f"[DB-SEARCH] Sin ubicación: {len(results)} resultados")
+            print(f"[DB-SEARCH-SEO] PASO 3: {len(results)} resultados con búsqueda AMPLIA")
             return results
             
     except Exception as e:
@@ -1474,27 +1579,103 @@ async def search_places_without_location_ai(craving: str, language: str, wa_id: 
         return []
 
 def search_places_with_location(craving: str, user_lat: float, user_lng: float, limit: int = 10) -> List[Dict[str, Any]]:
-    """NUEVO ORDEN: producto -> afiliado -> prioridad -> distancia
-    FASE 2: Solo muestra lugares con horarios del día actual"""
+    """
+    FLUJO SEO COMPLETO CON UBICACIÓN (3 PASOS):
+    
+    PASO 1: Búsqueda EXACTA por nombre (se hace antes de llamar esta función)
+    PASO 2: Búsqueda EXACTA en categories → Si encuentra, retorna solo esos (ordenados por distancia)
+    PASO 3: Búsqueda AMPLIA con LIKE en categories/products/category
+    
+    Orden final: cashback DESC → priority DESC → distance ASC
+    """
     if not craving:
         return []
     
-    # ✅ FASE 2: Obtener filtro de horarios del día
+    # ✅ Obtener filtro de horarios del día
     today_filter = get_today_hours_filter()
     
+    # ═══════════════════════════════════════════════════════════════
+    # PASO 2: Búsqueda EXACTA en categories (SEO) - CON DISTANCIA
+    # ═══════════════════════════════════════════════════════════════
     try:
-        # ✅ NUEVO: Crear variaciones de búsqueda (singular/plural)
         variations = normalize_search_term(craving)
-        print(f"[DB-SEARCH] Variaciones con ubicación de '{craving}': {variations}")
+        exact_conditions = " OR ".join([f"LOWER(item) = %s" for _ in variations])
         
-        # Crear condiciones OR para cada variación
+        sql_exact = f"""
+        WITH distances AS (
+            SELECT id, name, category, products, categories, priority, cashback, hours,
+                   address, phone, url_order, imagen_url, url_extra, afiliado,
+                   lat, lng, timezone, delivery,
+                   mon_open, mon_close, tue_open, tue_close, wed_open, wed_close,
+                   thu_open, thu_close, fri_open, fri_close, sat_open, sat_close,
+                   sun_open, sun_close,
+                   CASE 
+                       WHEN lat IS NOT NULL AND lng IS NOT NULL THEN
+                           6371000 * 2 * ASIN(SQRT(
+                               POWER(SIN(RADIANS((lat - %s) / 2)), 2) +
+                               COS(RADIANS(%s)) * COS(RADIANS(lat)) *
+                               POWER(SIN(RADIANS((lng - %s) / 2)), 2)
+                           ))
+                       ELSE 999999
+                   END as distance_meters
+            FROM public.places 
+            WHERE EXISTS (
+                SELECT 1 FROM jsonb_array_elements_text(categories) as item
+                WHERE {exact_conditions}
+            )
+            AND {today_filter}
+        )
+        SELECT * FROM distances
+        ORDER BY 
+            CASE WHEN cashback = true THEN 1 ELSE 0 END DESC,
+            priority DESC,
+            distance_meters ASC
+        LIMIT %s;
+        """
+        
+        params_exact = tuple([user_lat, user_lat, user_lng] + variations + [limit])
+        
+        print(f"[DB-SEARCH-SEO] PASO 2 (con ubicación): Buscando EXACTO en categories: {variations}")
+        
+        with get_pool().connection() as conn, conn.cursor(row_factory=psycopg.rows.dict_row) as cur:
+            cur.execute(sql_exact, params_exact)
+            rows = cur.fetchall()
+            
+            if rows:
+                results = []
+                for row in rows:
+                    place = dict(row)
+                    place["products"] = list(place.get("products") or [])
+                    place["categories"] = list(place.get("categories") or [])
+                    place["is_open_now"] = is_open_now_by_day(place)
+                    if place.get("distance_meters") and place["distance_meters"] < 999999:
+                        place["distance_text"] = format_distance(place["distance_meters"])
+                    else:
+                        place["distance_text"] = ""
+                    results.append(place)
+                
+                print(f"[DB-SEARCH-SEO] ✅ PASO 2: Encontrados {len(results)} con coincidencia EXACTA")
+                return results
+            
+            print(f"[DB-SEARCH-SEO] ❌ PASO 2: No hay coincidencia exacta, continuando a PASO 3...")
+            
+    except Exception as e:
+        print(f"[DB-SEARCH-SEO] Error en PASO 2: {e}")
+    
+    # ═══════════════════════════════════════════════════════════════
+    # PASO 3: Búsqueda AMPLIA con LIKE (fallback)
+    # ═══════════════════════════════════════════════════════════════
+    try:
+        variations = normalize_search_term(craving)
+        
+        # Crear condiciones OR para cada variación (con LIKE para búsqueda amplia)
         or_conditions_cat = " OR ".join([f"LOWER(item) LIKE %s" for _ in variations])
         or_conditions_prod = " OR ".join([f"LOWER(item) LIKE %s" for _ in variations])
         or_conditions_category = " OR ".join([f"LOWER(category) LIKE %s" for _ in variations])
         
         sql = f"""
         WITH distances AS (
-            SELECT id, name, category, products, priority, cashback, hours,
+            SELECT id, name, category, products, categories, priority, cashback, hours,
                    address, phone, url_order, imagen_url, url_extra, afiliado,
                    lat, lng, timezone, delivery,
                    mon_open, mon_close, tue_open, tue_close, wed_open, wed_close,
@@ -1531,12 +1712,11 @@ def search_places_with_location(craving: str, user_lat: float, user_lng: float, 
         LIMIT %s;
         """
         
-        # Crear patrones para cada variación
+        # Crear patrones LIKE para cada variación
         patterns = [f"%{v}%" for v in variations]
-        # params: user_lat, user_lat, user_lng + patterns para categories + patterns para products + patterns para category + limit
         params = tuple([user_lat, user_lat, user_lng] + patterns + patterns + patterns + [limit])
         
-        print(f"[DB-SEARCH] FASE 4 CON UBICACIÓN: Buscando '{craving}' con variaciones: {variations}")
+        print(f"[DB-SEARCH-SEO] PASO 3 (con ubicación): Buscando AMPLIO con patrones: {patterns}")
         
         with get_pool().connection() as conn, conn.cursor(row_factory=psycopg.rows.dict_row) as cur:
             cur.execute(sql, params)
@@ -1546,17 +1726,15 @@ def search_places_with_location(craving: str, user_lat: float, user_lng: float, 
             for row in rows:
                 place = dict(row)
                 place["products"] = list(place.get("products") or [])
+                place["categories"] = list(place.get("categories") or [])
                 place["is_open_now"] = is_open_now_by_day(place)
-
-                
                 if place.get("distance_meters") and place["distance_meters"] < 999999:
                     place["distance_text"] = format_distance(place["distance_meters"])
                 else:
                     place["distance_text"] = ""
-                
                 results.append(place)
             
-            print(f"[DB-SEARCH] Con ubicación: {len(results)} resultados")
+            print(f"[DB-SEARCH-SEO] PASO 3: {len(results)} resultados con búsqueda AMPLIA")
             return results
             
     except Exception as e:
