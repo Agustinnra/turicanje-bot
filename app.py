@@ -1272,9 +1272,16 @@ def search_places_without_location(craving: str, limit: int = 10) -> List[Dict[s
                thu_open, thu_close, fri_open, fri_close, sat_open, sat_close,
                sun_open, sun_close
         FROM public.places 
-        WHERE EXISTS (
-            SELECT 1 FROM jsonb_array_elements_text(categories) as item
-            WHERE LOWER(item) LIKE %s
+        WHERE (
+            EXISTS (
+                SELECT 1 FROM jsonb_array_elements_text(categories) as item
+                WHERE LOWER(item) LIKE %s
+            )
+            OR EXISTS (
+                SELECT 1 FROM jsonb_array_elements_text(products) as item
+                WHERE LOWER(item) LIKE %s
+            )
+            OR LOWER(category) LIKE %s
         )
         AND {today_filter}
         ORDER BY 
@@ -1286,7 +1293,7 @@ def search_places_without_location(craving: str, limit: int = 10) -> List[Dict[s
         LIMIT %s;
         """
         
-        params = (search_pattern, search_pattern, limit)
+        params = (search_pattern, search_pattern, search_pattern, search_pattern, limit)
         
         print(f"[DB-SEARCH] FASE 4: Buscando '{craving}' en categories (SEO interno)")
         print(f"[DEBUG] Search pattern: {search_pattern}")
@@ -1346,6 +1353,7 @@ async def search_places_without_location_ai(craving: str, language: str, wa_id: 
     try:
         # Crear condiciones OR dinámicas para cada término
         or_conditions = " OR ".join([f"LOWER(item) LIKE %(pattern_{i})s" for i in range(len(expanded_terms))])
+        or_conditions_category = " OR ".join([f"LOWER(category) LIKE %(pattern_{i})s" for i in range(len(expanded_terms))])
         
         sql = f"""
         SELECT id, name, category, products, priority, cashback, hours, 
@@ -1355,9 +1363,16 @@ async def search_places_without_location_ai(craving: str, language: str, wa_id: 
                thu_open, thu_close, fri_open, fri_close, sat_open, sat_close,
                sun_open, sun_close
         FROM public.places 
-        WHERE EXISTS (
-            SELECT 1 FROM jsonb_array_elements_text(categories) as item
-            WHERE {or_conditions}
+        WHERE (
+            EXISTS (
+                SELECT 1 FROM jsonb_array_elements_text(categories) as item
+                WHERE {or_conditions}
+            )
+            OR EXISTS (
+                SELECT 1 FROM jsonb_array_elements_text(products) as item
+                WHERE {or_conditions}
+            )
+            OR {or_conditions_category}
         )
         AND {today_filter}
         ORDER BY 
@@ -1432,9 +1447,16 @@ def search_places_with_location(craving: str, user_lat: float, user_lng: float, 
                    (SELECT COUNT(*) FROM jsonb_array_elements_text(categories) as item
                     WHERE LOWER(item) LIKE %s) as product_match_score
             FROM public.places 
-            WHERE EXISTS (
-                SELECT 1 FROM jsonb_array_elements_text(categories) as item
-                WHERE LOWER(item) LIKE %s
+            WHERE (
+                EXISTS (
+                    SELECT 1 FROM jsonb_array_elements_text(categories) as item
+                    WHERE LOWER(item) LIKE %s
+                )
+                OR EXISTS (
+                    SELECT 1 FROM jsonb_array_elements_text(products) as item
+                    WHERE LOWER(item) LIKE %s
+                )
+                OR LOWER(category) LIKE %s
             )
             AND {today_filter}
         )
@@ -1447,7 +1469,7 @@ def search_places_with_location(craving: str, user_lat: float, user_lng: float, 
         LIMIT %s;
         """
         
-        params = (user_lat, user_lat, user_lng, search_pattern, search_pattern, limit)
+        params = (user_lat, user_lat, user_lng, search_pattern, search_pattern, search_pattern, search_pattern, limit)
         
         print(f"[DB-SEARCH] FASE 4 CON UBICACIÓN: Buscando '{craving}' en categories (SEO interno)")
         
@@ -1505,6 +1527,7 @@ async def search_places_with_location_ai(craving: str, user_lat: float, user_lng
     try:
         # Crear condiciones OR dinámicas para cada término
         or_conditions = " OR ".join([f"LOWER(item) LIKE %(pattern_{i})s" for i in range(len(expanded_terms))])
+        or_conditions_category = " OR ".join([f"LOWER(category) LIKE %(pattern_{i})s" for i in range(len(expanded_terms))])
         
         sql = f"""
         WITH distances AS (
@@ -1526,9 +1549,16 @@ async def search_places_with_location_ai(craving: str, user_lat: float, user_lng
                    (SELECT COUNT(*) FROM jsonb_array_elements_text(categories) as item
                     WHERE {or_conditions}) as product_match_score
             FROM public.places 
-            WHERE EXISTS (
-                SELECT 1 FROM jsonb_array_elements_text(categories) as item
-                WHERE {or_conditions}
+            WHERE (
+                EXISTS (
+                    SELECT 1 FROM jsonb_array_elements_text(categories) as item
+                    WHERE {or_conditions}
+                )
+                OR EXISTS (
+                    SELECT 1 FROM jsonb_array_elements_text(products) as item
+                    WHERE {or_conditions}
+                )
+                OR {or_conditions_category}
             )
             AND {today_filter}
         )
