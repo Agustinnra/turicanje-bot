@@ -1137,6 +1137,15 @@ Ejemplos de COMIDA (search) - EXTRAE SOLO EL TIPO:
 - "quiero unos tacos buenos" → {{"intent": "search", "craving": "tacos", "needs_location": false, "business_name": null}}
 - "antojo de sushi" → {{"intent": "search", "craving": "sushi", "needs_location": false, "business_name": null}}
 - "se me antoja pizza" → {{"intent": "search", "craving": "pizza", "needs_location": false, "business_name": null}}
+- "recomiéndame un café tranquilo para trabajar" → {{"intent": "search", "craving": "café", "needs_location": false, "business_name": null}}
+- "busco un lugar para desayunar" → {{"intent": "search", "craving": "desayuno", "needs_location": false, "business_name": null}}
+- "dónde puedo comer sushi por aquí" → {{"intent": "search", "craving": "sushi", "needs_location": true, "business_name": null}}
+- "conoces algún restaurante de mariscos" → {{"intent": "search", "craving": "mariscos", "needs_location": false, "business_name": null}}
+- "me puedes recomendar tacos" → {{"intent": "search", "craving": "tacos", "needs_location": false, "business_name": null}}
+- "quiero ir a un bar" → {{"intent": "search", "craving": "bar", "needs_location": false, "business_name": null}}
+- "algún lugar con hamburguesas" → {{"intent": "search", "craving": "hamburguesas", "needs_location": false, "business_name": null}}
+- "recomiéndame algo para cenar" → {{"intent": "search", "craving": "cena", "needs_location": false, "business_name": null}}
+- "busco un café bonito" → {{"intent": "search", "craving": "café", "needs_location": false, "business_name": null}}
 - "algo rico" → {{"intent": "other", "craving": null, "needs_location": false, "business_name": null}}
 
 Ejemplos de PAGINACIÓN (more_options / no_more_options):
@@ -1147,9 +1156,12 @@ Ejemplos de PAGINACIÓN (more_options / no_more_options):
 - "ya no" → {{"intent": "no_more_options", "craving": null, "needs_location": false, "business_name": null}}
 - "está bien así" → {{"intent": "no_more_options", "craving": null, "needs_location": false, "business_name": null}}
 
-Ejemplos de CONVERSACIÓN (other):
+Ejemplos de CONVERSACIÓN (other) - Solo cuando NO hay comida específica:
 - "quiero comer" → {{"intent": "other", "craving": null, "needs_location": false, "business_name": null}}
 - "qué me recomiendas" → {{"intent": "other", "craving": null, "needs_location": false, "business_name": null}}
+- "tengo hambre" → {{"intent": "other", "craving": null, "needs_location": false, "business_name": null}}
+
+REGLA IMPORTANTE: Si el mensaje menciona un TIPO de comida o lugar (café, tacos, restaurante, bar, mariscos, desayuno, cena, etc.) SIEMPRE es "search", aunque la frase sea larga o tenga palabras extra.
 
 needs_location solo es true si pidió "cerca", "aquí cerca", etc.
 business_name debe ser el nombre EXACTO como lo escribió el usuario."""
