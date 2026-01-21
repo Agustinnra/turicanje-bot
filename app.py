@@ -1370,6 +1370,7 @@ def search_exact_in_categories(craving: str, limit: int = 10) -> List[Dict[str, 
         )
         AND {today_filter}
         ORDER BY 
+            CASE WHEN (plan_activo = true AND (plan_fecha_vencimiento IS NULL OR plan_fecha_vencimiento > NOW())) THEN 0 ELSE 1 END ASC,
             CASE WHEN cashback = true THEN 1 ELSE 0 END DESC,
             priority DESC,
             id ASC
@@ -1466,6 +1467,7 @@ def search_places_without_location(craving: str, limit: int = 10) -> List[Dict[s
         )
         AND {today_filter}
         ORDER BY 
+            CASE WHEN (plan_activo = true AND (plan_fecha_vencimiento IS NULL OR plan_fecha_vencimiento > NOW())) THEN 0 ELSE 1 END ASC,
             CASE WHEN cashback = true THEN 1 ELSE 0 END DESC,
             priority DESC,
             id ASC
@@ -1552,6 +1554,7 @@ async def search_places_without_location_ai(craving: str, language: str, wa_id: 
         )
         AND {today_filter}
         ORDER BY 
+            CASE WHEN (plan_activo = true AND (plan_fecha_vencimiento IS NULL OR plan_fecha_vencimiento > NOW())) THEN 0 ELSE 1 END ASC,
             CASE WHEN cashback = true THEN 1 ELSE 0 END DESC,
             priority DESC,
             (SELECT COUNT(*) FROM jsonb_array_elements_text(categories) as item
@@ -1639,6 +1642,7 @@ def search_places_with_location(craving: str, user_lat: float, user_lng: float, 
         )
         SELECT * FROM distances
         ORDER BY 
+            CASE WHEN (plan_activo = true AND (plan_fecha_vencimiento IS NULL OR plan_fecha_vencimiento > NOW())) THEN 0 ELSE 1 END ASC,
             CASE WHEN cashback = true THEN 1 ELSE 0 END DESC,
             priority DESC,
             distance_meters ASC
@@ -1718,6 +1722,7 @@ def search_places_with_location(craving: str, user_lat: float, user_lng: float, 
         )
         SELECT * FROM distances
         ORDER BY 
+            CASE WHEN (plan_activo = true AND (plan_fecha_vencimiento IS NULL OR plan_fecha_vencimiento > NOW())) THEN 0 ELSE 1 END ASC,
             CASE WHEN cashback = true THEN 1 ELSE 0 END DESC,
             priority DESC,
             distance_meters ASC
@@ -1819,6 +1824,7 @@ async def search_places_with_location_ai(craving: str, user_lat: float, user_lng
         )
         SELECT * FROM distances
         ORDER BY 
+            CASE WHEN (plan_activo = true AND (plan_fecha_vencimiento IS NULL OR plan_fecha_vencimiento > NOW())) THEN 0 ELSE 1 END ASC,
             CASE WHEN cashback = true THEN 1 ELSE 0 END DESC,
             priority DESC,
             product_match_score DESC,
