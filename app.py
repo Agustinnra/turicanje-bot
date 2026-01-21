@@ -2481,6 +2481,13 @@ async def handle_webhook(request: Request):
         lng = location.get("longitude") 
         if lat and lng:
             await handle_location_message(from_wa, float(lat), float(lng), phone_number_id)
+    
+    # ✅ NUEVO: Manejo de botones de templates (Quick Reply)
+    elif message_type == "button":
+        button_text = message.get("button", {}).get("text", "").strip()
+        print(f"{config['prefix']} [WEBHOOK] Botón presionado: '{button_text}'")
+        # Tratar el botón como si fuera texto
+        await handle_text_message(from_wa, button_text, phone_number_id)
         
     else:
         print(f"{config['prefix']} [WEBHOOK] Tipo de mensaje no soportado: {message_type}")
