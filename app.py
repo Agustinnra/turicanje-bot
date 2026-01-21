@@ -116,27 +116,42 @@ async def handle_invitation_button_click(wa_id: str, phone_number_id: str = None
             await send_whatsapp_message(wa_id, "Lo siento, hay un problema técnico. Por favor intenta más tarde.", phone_number_id)
             return
         
-        # Formatear teléfono para búsqueda (agregar 52 si es necesario)
-        telefono_buscar = wa_id
-        if not telefono_buscar.startswith('52') and len(telefono_buscar) == 10:
-            telefono_buscar = '52' + telefono_buscar
+        # Formatear teléfono para búsqueda - probar múltiples variaciones
+        # WhatsApp envía: 5215644140596 (521 + 10 dígitos)
+        # DB puede tener: 5644140596 (10 dígitos) o 525644140596 (52 + 10) o con espacios
+        telefono_original = wa_id
         
-        # También probar sin el 52 por si se guardó así
-        telefono_sin_52 = telefono_buscar[2:] if telefono_buscar.startswith('52') else telefono_buscar
+        # Quitar el 521 o 52 del inicio para obtener los 10 dígitos
+        if telefono_original.startswith('521') and len(telefono_original) == 13:
+            telefono_10_digitos = telefono_original[3:]  # Quitar 521
+        elif telefono_original.startswith('52') and len(telefono_original) == 12:
+            telefono_10_digitos = telefono_original[2:]  # Quitar 52
+        else:
+            telefono_10_digitos = telefono_original
+        
+        # Variaciones a buscar
+        variaciones = [
+            telefono_original,           # 5215644140596
+            telefono_10_digitos,         # 5644140596
+            '52' + telefono_10_digitos,  # 525644140596
+            '521' + telefono_10_digitos, # 5215644140596
+        ]
         
         sql = """
         SELECT i.codigo, i.nombre_invitado, p.name as nombre_negocio
         FROM invitaciones_comercio i
         JOIN places p ON i.place_id = p.id
-        WHERE (i.telefono_invitado = %s OR i.telefono_invitado = %s OR i.telefono_invitado = %s)
+        WHERE i.telefono_invitado IN (%s, %s, %s, %s)
           AND i.usado = false
         ORDER BY i.created_at DESC
         LIMIT 1;
         """
         
+        print(f"[INVITACION-BOT] Buscando teléfono en variaciones: {variaciones}")
+        
         with pool.connection() as conn:
             with conn.cursor(row_factory=psycopg.rows.dict_row) as cur:
-                cur.execute(sql, (wa_id, telefono_buscar, telefono_sin_52))
+                cur.execute(sql, tuple(variaciones))
                 invitacion = cur.fetchone()
         
         if invitacion:
