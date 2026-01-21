@@ -127,9 +127,9 @@ async def handle_invitation_button_click(wa_id: str, phone_number_id: str = None
         sql = """
         SELECT i.codigo, i.nombre_invitado, p.name as nombre_negocio
         FROM invitaciones_comercio i
-        JOIN places p ON i.comercio_id = p.id
-        WHERE (i.telefono = %s OR i.telefono = %s OR i.telefono = %s)
-          AND i.estado = 'pendiente'
+        JOIN places p ON i.place_id = p.id
+        WHERE (i.telefono_invitado = %s OR i.telefono_invitado = %s OR i.telefono_invitado = %s)
+          AND i.usado = false
         ORDER BY i.created_at DESC
         LIMIT 1;
         """
