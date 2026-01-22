@@ -1466,7 +1466,8 @@ def search_exact_in_categories(craving: str, limit: int = 10) -> List[Dict[str, 
                thu_open, thu_close, fri_open, fri_close, sat_open, sat_close,
                sun_open, sun_close
         FROM public.places 
-        WHERE EXISTS (
+        WHERE is_active = TRUE
+        AND EXISTS (
             SELECT 1 FROM jsonb_array_elements_text(categories) as item
             WHERE {exact_conditions}
         )
@@ -1556,7 +1557,8 @@ def search_places_without_location(craving: str, limit: int = 10) -> List[Dict[s
                thu_open, thu_close, fri_open, fri_close, sat_open, sat_close,
                sun_open, sun_close
         FROM public.places 
-        WHERE (
+        WHERE is_active = TRUE
+        AND (
             EXISTS (
                 SELECT 1 FROM jsonb_array_elements_text(categories) as item
                 WHERE {or_conditions_cat}
@@ -1643,7 +1645,8 @@ async def search_places_without_location_ai(craving: str, language: str, wa_id: 
                thu_open, thu_close, fri_open, fri_close, sat_open, sat_close,
                sun_open, sun_close
         FROM public.places 
-        WHERE (
+        WHERE is_active = TRUE
+        AND (
             EXISTS (
                 SELECT 1 FROM jsonb_array_elements_text(categories) as item
                 WHERE {or_conditions}
@@ -1736,7 +1739,8 @@ def search_places_with_location(craving: str, user_lat: float, user_lng: float, 
                        ELSE 999999
                    END as distance_meters
             FROM public.places 
-            WHERE EXISTS (
+            WHERE is_active = TRUE
+            AND EXISTS (
                 SELECT 1 FROM jsonb_array_elements_text(categories) as item
                 WHERE {exact_conditions}
             )
@@ -1809,7 +1813,8 @@ def search_places_with_location(craving: str, user_lat: float, user_lng: float, 
                        ELSE 999999
                    END as distance_meters
             FROM public.places 
-            WHERE (
+            WHERE is_active = TRUE
+            AND (
                 EXISTS (
                     SELECT 1 FROM jsonb_array_elements_text(categories) as item
                     WHERE {or_conditions_cat}
