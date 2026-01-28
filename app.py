@@ -1248,7 +1248,17 @@ Ejemplos de COMIDA (search) - EXTRAE SOLO EL TIPO:
 - "algún lugar con hamburguesas" → {{"intent": "search", "craving": "hamburguesas", "needs_location": false, "business_name": null}}
 - "recomiéndame algo para cenar" → {{"intent": "search", "craving": "cena", "needs_location": false, "business_name": null}}
 - "busco un café bonito" → {{"intent": "search", "craving": "café", "needs_location": false, "business_name": null}}
-- "algo rico" → {{"intent": "other", "craving": null, "needs_location": false, "business_name": null}}
+
+Ejemplos de FRASES DESCRIPTIVAS (search) - Son skill words válidas:
+- "algo rico" → {{"intent": "search", "craving": "algo rico", "needs_location": false, "business_name": null}}
+- "algo picosito" → {{"intent": "search", "craving": "algo picosito", "needs_location": false, "business_name": null}}
+- "algo dulcesito" → {{"intent": "search", "craving": "algo dulcesito", "needs_location": false, "business_name": null}}
+- "algo dulce" → {{"intent": "search", "craving": "algo dulce", "needs_location": false, "business_name": null}}
+- "algo picante" → {{"intent": "search", "craving": "algo picante", "needs_location": false, "business_name": null}}
+- "algo ligero" → {{"intent": "search", "craving": "algo ligero", "needs_location": false, "business_name": null}}
+- "algo económico" → {{"intent": "search", "craving": "algo económico", "needs_location": false, "business_name": null}}
+- "botanitas" → {{"intent": "search", "craving": "botanitas", "needs_location": false, "business_name": null}}
+- "snacks" → {{"intent": "search", "craving": "snacks", "needs_location": false, "business_name": null}}
 
 Ejemplos de PAGINACIÓN (more_options / no_more_options):
 - "más" → {{"intent": "more_options", "craving": null, "needs_location": false, "business_name": null}}
@@ -1258,12 +1268,14 @@ Ejemplos de PAGINACIÓN (more_options / no_more_options):
 - "ya no" → {{"intent": "no_more_options", "craving": null, "needs_location": false, "business_name": null}}
 - "está bien así" → {{"intent": "no_more_options", "craving": null, "needs_location": false, "business_name": null}}
 
-Ejemplos de CONVERSACIÓN (other) - Solo cuando NO hay comida específica:
+Ejemplos de CONVERSACIÓN (other) - Solo cuando NO hay comida NI descripción específica:
 - "quiero comer" → {{"intent": "other", "craving": null, "needs_location": false, "business_name": null}}
 - "qué me recomiendas" → {{"intent": "other", "craving": null, "needs_location": false, "business_name": null}}
 - "tengo hambre" → {{"intent": "other", "craving": null, "needs_location": false, "business_name": null}}
 
 REGLA IMPORTANTE: Si el mensaje menciona un TIPO de comida o lugar (café, tacos, restaurante, bar, mariscos, desayuno, cena, etc.) SIEMPRE es "search", aunque la frase sea larga o tenga palabras extra.
+
+REGLA IMPORTANTE 2: Si el usuario dice "algo + adjetivo" (algo rico, algo picosito, algo dulce, botanitas, snacks, etc.), SIEMPRE es "search" con craving = la frase completa. Estas son palabras clave de búsqueda válidas.
 
 needs_location solo es true si pidió "cerca", "aquí cerca", etc.
 business_name debe ser el nombre EXACTO como lo escribió el usuario."""
@@ -2648,14 +2660,17 @@ async def handle_text_message(wa_id: str, text: str, phone_number_id: str = None
     is_new_session = session.get("is_new")
     has_greeting_words = any(word in text.lower() for word in ['hola', 'hello', 'hi', 'buenas', 'buenos'])
     
-    # ✅ NUEVO: BÚSQUEDA POR NOMBRE DE NEGOCIO
+    # ✅ BÚSQUEDA POR NOMBRE DE NEGOCIO (CON FALLBACK A CATEGORIES)
     if intent == "business_search" and business_name:
         session["is_new"] = False
         
+        # ══════════════════════════════════════════════════════════════
+        # PASO 1: Buscar por NOMBRE EXACTO del negocio
+        # ══════════════════════════════════════════════════════════════
         place = search_place_by_name(business_name)
         
         if place:
-            # Enviar detalles del negocio directamente
+            # ✅ Encontró negocio por nombre - Enviar detalles
             details = format_place_details(place, session["language"])
             await send_whatsapp_message(wa_id, details, phone_number_id)
             
@@ -2676,8 +2691,64 @@ async def handle_text_message(wa_id: str, text: str, phone_number_id: str = None
             
             # Guardar en sesión por si quiere más info
             session["last_results"] = [place]
+            return
+        
+        # ══════════════════════════════════════════════════════════════
+        # PASO 2: No encontró por nombre → Buscar en CATEGORIES (skill words)
+        # ══════════════════════════════════════════════════════════════
+        print(f"[SEARCH-FALLBACK] No encontró negocio '{business_name}', buscando en categories...")
+        
+        # Usar la misma función de búsqueda que usa para comida
+        if session.get("user_location"):
+            user_lat = session["user_location"]["lat"]
+            user_lng = session["user_location"]["lng"]
+            fallback_results = search_places_with_location(business_name, user_lat, user_lng, limit=10)
         else:
-            # No encontrado - SIEMPRE EN ESPAÑOL
+            fallback_results = search_places_without_location(business_name, limit=10)
+        
+        if fallback_results:
+            # ✅ Encontró en categories - Mostrar como resultados de búsqueda
+            print(f"[SEARCH-FALLBACK] ✅ Encontró {len(fallback_results)} en categories para '{business_name}'")
+            
+            display_results = fallback_results[:MAX_SUGGESTIONS]
+            session["last_results"] = fallback_results
+            session["last_search"] = {"craving": business_name, "needs_location": False}
+            session["shown_count"] = len(display_results)
+            
+            # Formatear respuesta igual que búsqueda normal
+            intro_message = get_smart_response_message(display_results, business_name, session["language"], session.get("user_location") is not None)
+            results_list = format_results_list(display_results, session["language"])
+            
+            response = f"{intro_message}\n\n{results_list}\n\nMándame el número del que te guste"
+            
+            if not session.get("user_location"):
+                response += " o mándame tu ubicación para ver qué hay cerca 📍"
+            
+            await send_whatsapp_message(wa_id, response, phone_number_id)
+            
+            # ✅ ANALYTICS: Log search
+            asyncio.create_task(log_search(
+                wa_id=wa_id,
+                session_id=session.get("session_id", "unknown"),
+                craving=business_name,
+                results_count=len(fallback_results),
+                has_location=session.get("user_location") is not None,
+                pool=get_pool()
+            ))
+            
+            # 📝 Log de búsqueda por fallback
+            asyncio.create_task(log_bot_interaction(
+                wa_id=wa_id,
+                session_id=session.get("session_id", str(uuid.uuid4())),
+                user_message=business_name,
+                bot_response=response[:500],
+                intent="search_fallback_from_business",
+                search_query=business_name,
+                search_results=[{"id": r.get("id"), "name": r.get("name")} for r in display_results[:5]]
+            ))
+        else:
+            # ❌ No encontró ni por nombre ni en categories
+            print(f"[SEARCH-FALLBACK] ❌ No encontró nada para '{business_name}'")
             response = f"No encontré '{business_name}' en mi lista 😕 ¿Quieres que busque algo más o me dices qué tipo de comida te gustaría?"
             await send_whatsapp_message(wa_id, response, phone_number_id)
             
