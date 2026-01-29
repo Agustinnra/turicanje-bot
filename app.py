@@ -33,6 +33,7 @@ from analytics_functions import (
 )
 # ===== LOYALTY MODULE =====
 from handlers import loyalty
+from handlers import invitations
 
 # ===== BOT INTERACTIONS LOGGING =====
 # Guarda conversaciones completas en bot_interactions
@@ -100,108 +101,6 @@ async def log_bot_interaction(
         # ⚠️ IMPORTANTE: NO lanzar error, solo logear
         print(f"[BOT-LOG] ⚠️ Error (no crítico): {e}")
 # ===== FIN BOT INTERACTIONS LOGGING =====
-
-# ===== MANEJO DE INVITACIONES COMERCIALES =====
-async def handle_invitation_button_click(wa_id: str, phone_number_id: str = None):
-    """
-    Maneja cuando un comercio hace click en el botón "Obtener mi acceso"
-    del template de WhatsApp.
-    
-    1. Busca invitación pendiente para ese número de teléfono
-    2. Si existe, envía el código y link de registro
-    3. Si no existe, informa que no hay invitación
-    """
-    try:
-        pool = get_pool()
-        if not pool:
-            print(f"[INVITACION-BOT] ❌ No hay conexión a BD")
-            await send_whatsapp_message(wa_id, "Lo siento, hay un problema técnico. Por favor intenta más tarde.", phone_number_id)
-            return
-        
-        # Formatear teléfono para búsqueda - probar múltiples variaciones
-        # WhatsApp envía: 5215644140596 (521 + 10 dígitos)
-        # DB puede tener: 5644140596 (10 dígitos) o 525644140596 (52 + 10) o con espacios
-        telefono_original = wa_id
-        
-        # Quitar el 521 o 52 del inicio para obtener los 10 dígitos
-        if telefono_original.startswith('521') and len(telefono_original) == 13:
-            telefono_10_digitos = telefono_original[3:]  # Quitar 521
-        elif telefono_original.startswith('52') and len(telefono_original) == 12:
-            telefono_10_digitos = telefono_original[2:]  # Quitar 52
-        else:
-            telefono_10_digitos = telefono_original
-        
-        # Variaciones a buscar
-        variaciones = [
-            telefono_original,           # 5215644140596
-            telefono_10_digitos,         # 5644140596
-            '52' + telefono_10_digitos,  # 525644140596
-            '521' + telefono_10_digitos, # 5215644140596
-        ]
-        
-        sql = """
-        SELECT i.codigo, i.nombre_invitado, p.name as nombre_negocio
-        FROM invitaciones_comercio i
-        JOIN places p ON i.place_id = p.id
-        WHERE i.telefono_invitado IN (%s, %s, %s, %s)
-          AND i.usado = false
-        ORDER BY i.created_at DESC
-        LIMIT 1;
-        """
-        
-        print(f"[INVITACION-BOT] Buscando teléfono en variaciones: {variaciones}")
-        
-        with pool.connection() as conn:
-            with conn.cursor(row_factory=psycopg.rows.dict_row) as cur:
-                cur.execute(sql, tuple(variaciones))
-                invitacion = cur.fetchone()
-        
-        if invitacion:
-            codigo = invitacion['codigo']
-            nombre = invitacion.get('nombre_invitado') or ''
-            negocio = invitacion.get('nombre_negocio') or 'tu negocio'
-            
-            # Construir link de registro
-            link = f"https://turicanje.com/registro-comercio?codigo={codigo}"
-            
-            mensaje = f"""🎉 *¡Perfecto{' ' + nombre if nombre else ''}!*
-
-Aquí está tu acceso para administrar *{negocio}* en Turicanje:
-
-🔑 *Código de invitación:*
-{codigo}
-
-📱 *Regístrate aquí:*
-{link}
-
-✨ *Con tu cuenta podrás:*
-• Ver estadísticas de tu negocio
-• Gestionar tu información
-• Ofrecer cashback a clientes
-• ¡Primer año GRATIS!
-
-¿Dudas? Escríbenos a soporte@turicanje.com"""
-            
-            await send_whatsapp_message(wa_id, mensaje, phone_number_id)
-            print(f"[INVITACION-BOT] ✅ Código enviado a {wa_id} para negocio: {negocio}")
-            
-        else:
-            mensaje = """Hola 👋
-
-No encontré una invitación pendiente para este número.
-
-Si crees que es un error, por favor contacta a soporte@turicanje.com con el nombre de tu negocio.
-
-¿O tal vez quieres buscar un lugar para comer? 🍽️ Solo dime qué se te antoja."""
-            
-            await send_whatsapp_message(wa_id, mensaje, phone_number_id)
-            print(f"[INVITACION-BOT] ⚠️ No hay invitación pendiente para {wa_id}")
-            
-    except Exception as e:
-        print(f"[INVITACION-BOT] ❌ Error: {e}")
-        await send_whatsapp_message(wa_id, "Lo siento, hubo un problema. Por favor intenta de nuevo o escribe a soporte@turicanje.com", phone_number_id)
-
-# ===== FIN MANEJO DE INVITACIONES =====
 
 
 # ===== NORMALIZACIÓN DE BÚSQUEDA =====
@@ -594,6 +493,9 @@ async def startup():
         # Inicializar módulo de loyalty
         loyalty.init(get_pool, send_whatsapp_message, send_whatsapp_image)
         print("[MODULES] ✅ Loyalty module initialized")
+        # Inicializar módulo de invitations
+        invitations.init(get_pool, send_whatsapp_message)
+        print("[MODULES] ✅ Invitations module initialized")
     except Exception as e:
         print(f"[DB] Error conectando: {e}")
 
@@ -2756,7 +2658,7 @@ async def handle_text_message(wa_id: str, text: str, phone_number_id: str = None
     text_lower_stripped = text.lower().strip()
     if text_lower_stripped == "obtener mi acceso":
         print(f"[INVITACION-BOT] Detectado click en botón 'Obtener mi acceso' de {wa_id}")
-        await handle_invitation_button_click(wa_id, phone_number_id)
+        await invitations.handle_invitation_button_click(wa_id, phone_number_id)
         return
     
     # ✅ PRIMERO: Detectar saludos comunes en inglés y otros idiomas
