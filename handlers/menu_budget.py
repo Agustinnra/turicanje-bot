@@ -189,6 +189,58 @@ async def search_menu_with_budget(
         return []
 
 
+def format_budget_response(
+    results: List[Dict[str, Any]], 
+    producto: str,
+    presupuesto: int,
+    personas: int
+) -> str:
+    """
+    Formatea la respuesta del bot con los resultados de presupuesto.
+    """
+    if not results:
+        return f"""😕 No encontré *{producto}* dentro de tu presupuesto de ${presupuesto:,} para {personas} personas.
+
+💡 *Sugerencias:*
+- Intenta con un presupuesto mayor
+- Busca otro producto
+- Escribe solo "{producto}" para ver opciones sin límite de precio"""
+    
+    # Agrupar por negocio
+    negocios = {}
+    for r in results:
+        negocio = r['negocio']
+        if negocio not in negocios:
+            negocios[negocio] = {
+                'address': r['address'],
+                'cashback': r['cashback'],
+                'productos': []
+            }
+        negocios[negocio]['productos'].append(r)
+    
+    # Construir respuesta
+    lines = [f"🍽️ *{producto.capitalize()}* para {personas} personas con ${presupuesto:,}\n"]
+    
+    for negocio, data in negocios.items():
+        cashback_badge = " 💰" if data['cashback'] else ""
+        lines.append(f"📍 *{negocio}*{cashback_badge}")
+        
+        for p in data['productos'][:3]:  # Máximo 3 por negocio
+            lines.append(f"   • {p['nombre']}: ${p['precio']:.0f}")
+            lines.append(f"     → Alcanzan *{p['cantidad_total']}* ({p['cantidad_por_persona']} c/u)")
+        
+        lines.append("")  # Línea vacía entre negocios
+    
+    # Agregar mejor opción
+    mejor = max(results, key=lambda x: x['cantidad_total'])
+    lines.append(f"✅ *Mejor opción:* {mejor['nombre']} en {mejor['negocio']}")
+    lines.append(f"   ${mejor['precio']:.0f} × {mejor['cantidad_total']} = ${mejor['gasto_total']:.0f}")
+    if mejor['sobra'] > 0:
+        lines.append(f"   💵 Te sobran ${mejor['sobra']:.0f}")
+    
+    return "\n".join(lines)
+
+
 async def handle_budget_search(
     wa_id: str,
     producto: str,
