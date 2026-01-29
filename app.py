@@ -2764,24 +2764,24 @@ async def handle_text_message(wa_id: str, text: str, phone_number_id: str = None
                 "_exact_results": exact_results_raw,  # Guardar resultados para usar después
                 "_skip_search": True  # Flag para saltar la búsqueda normal
             }
-    else:
-        # No encontró exacto, usar IA normal
+        else:
+            # No encontró exacto, usar IA normal
             intent_data = await extract_intent_with_ai(text, session["language"], session["name"], wa_id)
 
             # ✅ NUEVO: Detectar búsqueda con presupuesto
-            budget = intent_data.get("budget")
-            personas = intent_data.get("personas") or 1
+        budget = intent_data.get("budget")
+        personas = intent_data.get("personas") or 1
     
         if budget and intent_data.get("craving"):
             print(f"[BUDGET-DETECT] Detectado presupuesto: ${budget} para {personas} personas, producto: {intent_data.get('craving')}")
             await menu_budget.handle_budget_search(
-            wa_id,
-            intent_data.get("craving"),
-            int(budget),
-            int(personas),
-            phone_number_id
-        )
-        return
+                wa_id,
+                intent_data.get("craving"),
+                int(budget),
+                int(personas),
+                phone_number_id
+            )
+            return
     
     intent = intent_data.get("intent", "other")
     craving = intent_data.get("craving")
