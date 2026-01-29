@@ -1110,13 +1110,15 @@ Responde SOLO en JSON:
             else:
                 business_name = None
             
-            print(f"[AI-INTENT-CLAUDE] {wa_id}: intent={intent}, craving={craving}, business_name={business_name}")
+            print(f"[AI-INTENT-CLAUDE] {wa_id}: intent={intent}, craving={craving}, business_name={business_name}, budget={result.get('budget')}, personas={result.get('personas')}")
             
             return {
                 "intent": intent,
                 "craving": craving,
                 "needs_location": bool(result.get("needs_location", False)),
-                "business_name": business_name
+                "business_name": business_name,
+                "budget": result.get("budget"),
+                "personas": result.get("personas")
             }
         else:
             print(f"[AI-INTENT-CLAUDE] {wa_id}: Error HTTP {response.status_code}")
