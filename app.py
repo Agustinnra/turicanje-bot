@@ -1520,6 +1520,77 @@ def search_exact_in_categories(craving: str, limit: int = 10) -> List[Dict[str, 
         print(f"[DB-SEARCH-SEO] Error en búsqueda exacta categories: {e}")
         return []
 
+def search_exact_user_text(raw_text: str, limit: int = 10) -> List[Dict[str, Any]]:
+    """
+    NUEVA FUNCIÓN: Busca el texto EXACTO del usuario en categories.
+    
+    Esta función busca coincidencia exacta (ignorando mayúsculas).
+    
+    Ejemplo:
+    - Usuario escribe: "tacos de suadero"
+    - Busca negocios que tengan EXACTAMENTE "tacos de suadero" en categories
+    - Si encuentra → retorna esos resultados
+    - Si no encuentra → retorna lista vacía (para que el flujo continúe con IA)
+    
+    Orden: cashback DESC → priority DESC → id ASC
+    """
+    if not raw_text or len(raw_text.strip()) < 2:
+        return []
+    
+    search_term = raw_text.lower().strip()
+    
+    # ✅ Obtener filtro de horarios del día
+    today_filter = get_today_hours_filter()
+    
+    try:
+        # Buscar coincidencia EXACTA en categories (ignorando mayúsculas)
+        sql_exact = f"""
+        SELECT id, name, category, products, categories, priority, cashback, hours, 
+               address, phone, url_order, imagen_url, url_extra, afiliado,
+               lat, lng, timezone, delivery,
+               mon_open, mon_close, tue_open, tue_close, wed_open, wed_close,
+               thu_open, thu_close, fri_open, fri_close, sat_open, sat_close,
+               sun_open, sun_close
+        FROM public.places 
+        WHERE is_active = TRUE
+        AND EXISTS (
+            SELECT 1 FROM jsonb_array_elements_text(categories) as item
+            WHERE LOWER(item) = %s
+        )
+        AND {today_filter}
+        ORDER BY 
+            CASE WHEN (plan_activo = true AND (plan_fecha_vencimiento IS NULL OR plan_fecha_vencimiento > NOW())) THEN 0 ELSE 1 END ASC,
+            CASE WHEN cashback = true THEN 1 ELSE 0 END DESC,
+            priority DESC,
+            id ASC
+        LIMIT %s;
+        """
+        
+        print(f"[EXACT-USER-TEXT] Buscando EXACTO: '{search_term}'")
+        
+        with get_pool().connection() as conn, conn.cursor(row_factory=psycopg.rows.dict_row) as cur:
+            cur.execute(sql_exact, (search_term, limit))
+            rows = cur.fetchall()
+            
+            if rows:
+                results = []
+                for row in rows:
+                    place = dict(row)
+                    place["products"] = list(place.get("products") or [])
+                    place["categories"] = list(place.get("categories") or [])
+                    place["is_open_now"] = is_open_now_by_day(place)
+                    results.append(place)
+                
+                print(f"[EXACT-USER-TEXT] ✅ Encontrados {len(results)} con texto EXACTO '{search_term}'")
+                return results
+        
+        print(f"[EXACT-USER-TEXT] ❌ No hay coincidencia exacta para '{search_term}'")
+        return []
+            
+    except Exception as e:
+        print(f"[EXACT-USER-TEXT] Error: {e}")
+        return []
+
 def search_places_without_location(craving: str, limit: int = 10) -> List[Dict[str, Any]]:
     """
     FLUJO SEO COMPLETO (3 PASOS):
@@ -2648,8 +2719,28 @@ async def handle_text_message(wa_id: str, text: str, phone_number_id: str = None
         intent_data = {"intent": "no_more_options", "craving": None, "needs_location": False, "business_name": None}
         print(f"[HARDCODED] Detectado rechazo: '{text}' → no_more_options")
     else:
-        # Si no es paginación, usar IA normal
-        intent_data = await extract_intent_with_ai(text, session["language"], session["name"], wa_id)
+        # ═══════════════════════════════════════════════════════════════
+        # ✅ NUEVO: BÚSQUEDA EXACTA CON TEXTO DEL USUARIO (ANTES DE IA)
+        # ═══════════════════════════════════════════════════════════════
+        # Intentar buscar el texto EXACTO del usuario en categories
+        # Si encuentra resultados, usar esos directamente sin llamar a la IA
+        
+        exact_results_raw = search_exact_user_text(text, limit=10)
+        
+        if exact_results_raw:
+            # ✅ Encontró resultados exactos - crear intent artificial
+            print(f"[PRE-IA-SEARCH] ✅ Encontró {len(exact_results_raw)} con texto exacto '{text}', saltando IA")
+            intent_data = {
+                "intent": "search", 
+                "craving": text.strip(),  # Usar el texto original del usuario
+                "needs_location": False, 
+                "business_name": None,
+                "_exact_results": exact_results_raw,  # Guardar resultados para usar después
+                "_skip_search": True  # Flag para saltar la búsqueda normal
+            }
+        else:
+            # No encontró exacto, usar IA normal
+            intent_data = await extract_intent_with_ai(text, session["language"], session["name"], wa_id)
     
     intent = intent_data.get("intent", "other")
     craving = intent_data.get("craving")
@@ -2883,7 +2974,12 @@ async def handle_text_message(wa_id: str, text: str, phone_number_id: str = None
         session["is_new"] = False
         session["last_search"] = {"craving": craving, "needs_location": needs_location}
         
-        if session.get("user_location"):
+        # ✅ NUEVO: Verificar si ya tenemos resultados exactos del pre-búsqueda
+        if intent_data.get("_skip_search") and intent_data.get("_exact_results"):
+            results = intent_data["_exact_results"]
+            used_expansion = False
+            print(f"[SEARCH] Usando {len(results)} resultados exactos pre-calculados para '{craving}'")
+        elif session.get("user_location"):
             user_lat = session["user_location"]["lat"]
             user_lng = session["user_location"]["lng"] 
             results, used_expansion = await search_places_with_location_ai(craving, user_lat, user_lng, session["language"], wa_id, 10)
@@ -3002,7 +3098,12 @@ async def handle_text_message(wa_id: str, text: str, phone_number_id: str = None
     
     # BÚSQUEDAS REGULARES: Solo craving sin saludo en sesión existente
     if intent == "search" and craving and not is_new_session:
-        if session.get("user_location"):
+        # ✅ NUEVO: Verificar si ya tenemos resultados exactos del pre-búsqueda
+        if intent_data.get("_skip_search") and intent_data.get("_exact_results"):
+            results = intent_data["_exact_results"]
+            used_expansion = False
+            print(f"[SEARCH-REGULAR] Usando {len(results)} resultados exactos pre-calculados para '{craving}'")
+        elif session.get("user_location"):
             user_lat = session["user_location"]["lat"]
             user_lng = session["user_location"]["lng"] 
             results, used_expansion = await search_places_with_location_ai(craving, user_lat, user_lng, session["language"], wa_id, 10)
