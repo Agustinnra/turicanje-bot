@@ -34,6 +34,7 @@ from analytics_functions import (
 # ===== LOYALTY MODULE =====
 from handlers import loyalty
 from handlers import invitations
+from handlers import menu_budget
 
 # ===== BOT INTERACTIONS LOGGING =====
 # Guarda conversaciones completas en bot_interactions
@@ -493,6 +494,9 @@ async def startup():
         # Inicializar módulo de loyalty
         loyalty.init(get_pool, send_whatsapp_message, send_whatsapp_image)
         print("[MODULES] ✅ Loyalty module initialized")
+        # Inicializar módulo de menu_budget
+        menu_budget.init(get_pool, send_whatsapp_message)
+        print("[MODULES] ✅ Menu budget module initialized")
         # Inicializar módulo de invitations
         invitations.init(get_pool, send_whatsapp_message)
         print("[MODULES] ✅ Invitations module initialized")
@@ -1053,8 +1057,14 @@ PAGINACIÓN:
 - "más", "mas", "dame más" → SIEMPRE more_options
 - "no", "ya no", "suficiente" → no_more_options
 
+PRESUPUESTO:
+- Si mencionan dinero/pesos y cantidad de personas, extrae budget y personas
+- "cervezas para 4, tenemos 600 pesos" → budget: 600, personas: 4
+- "hamburguesas con 500 pesos para 3" → budget: 500, personas: 3
+- Si no mencionan presupuesto → budget: null, personas: null
+
 Responde SOLO en JSON:
-{{"intent": "greeting|search|business_search|more_options|no_more_options|other", "craving": "tipo comida o null", "needs_location": true/false, "business_name": "nombre o null"}}"""
+{{"intent": "greeting|search|business_search|more_options|no_more_options|other", "craving": "tipo comida o null", "needs_location": true/false, "business_name": "nombre o null", "budget": numero o null, "personas": numero o null}}"""
 
         async with httpx.AsyncClient(timeout=15) as client:
             response = await client.post(
@@ -2755,8 +2765,26 @@ async def handle_text_message(wa_id: str, text: str, phone_number_id: str = None
                 "_skip_search": True  # Flag para saltar la búsqueda normal
             }
         else:
-            # No encontró exacto, usar IA normal
-            intent_data = await extract_intent_with_ai(text, session["language"], session["name"], wa_id)
+        # No encontró exacto, usar IA normal
+        intent_data = await extract_intent_with_ai(text, session["language"], session["name"], wa_id)
+
+    # ✅ NUEVO: Detectar búsqueda con presupuesto
+    budget = intent_data.get("budget")
+    personas = intent_data.get("personas") or 1
+    
+    if budget and intent_data.get("craving"):
+        print(f"[BUDGET-DETECT] Detectado presupuesto: ${budget} para {personas} personas, producto: {intent_data.get('craving')}")
+        await menu_budget.handle_budget_search(
+            wa_id,
+            intent_data.get("craving"),
+            int(budget),
+            int(personas),
+            phone_number_id
+        )
+        return
+
+    intent = intent_data.get("intent", "other")
+    craving = intent_data.get("craving")
     
     intent = intent_data.get("intent", "other")
     craving = intent_data.get("craving")
