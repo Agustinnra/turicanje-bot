@@ -743,6 +743,7 @@ WHATSAPP_TOKEN = os.getenv("WHATSAPP_TOKEN", "")
 PHONE_NUMBER_ID = os.getenv("PHONE_NUMBER_ID", "")
 APP_SECRET = os.getenv("APP_SECRET", "")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
+ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
 TZ = os.getenv("TZ", "America/Mexico_City")
 SEND_VIA_WHATSAPP = os.getenv("SEND_VIA_WHATSAPP", "true").lower() == "true"
 
@@ -1369,6 +1370,91 @@ print("[SCHEDULER] ✅ Background job iniciado - verificando sesiones inactivas 
 
 
 # ================= IA: EXTRACCIÓN DE INTENCIÓN =================
+
+# ================= CLAUDE: EXTRACCIÓN DE INTENCIÓN =================
+async def extract_intent_with_claude(text: str, language: str, name: str, wa_id: str) -> Dict[str, Any]:
+    """Extrae intención usando Claude Haiku (más barato que OpenAI)."""
+    if not ANTHROPIC_API_KEY:
+        return None
+    
+    try:
+        system_prompt = f"""Eres {name}, analizas mensajes para extraer qué quiere comer/probar el usuario.
+
+REGLAS PARA NOMBRES DE NEGOCIOS:
+- Si el mensaje tiene 1-4 PALABRAS en MAYÚSCULAS o con mayúscula inicial (ej: "El Manjar", "DEMO"), es nombre de negocio → business_search
+
+REGLAS PARA COMIDA:
+- Extrae SOLO el tipo de comida, SIN adjetivos como "rica", "buena"
+- "una hamburguesa rica" → craving: "hamburguesa"
+- "algo rico" → craving: "algo rico" (frase de búsqueda válida)
+
+PAGINACIÓN:
+- "más", "mas", "dame más" → SIEMPRE more_options
+- "no", "ya no", "suficiente" → no_more_options
+
+Responde SOLO en JSON:
+{{"intent": "greeting|search|business_search|more_options|no_more_options|other", "craving": "tipo comida o null", "needs_location": true/false, "business_name": "nombre o null"}}"""
+
+        async with httpx.AsyncClient(timeout=15) as client:
+            response = await client.post(
+                "https://api.anthropic.com/v1/messages",
+                headers={
+                    "x-api-key": ANTHROPIC_API_KEY,
+                    "anthropic-version": "2023-06-01",
+                    "Content-Type": "application/json"
+                },
+                json={
+                    "model": "claude-3-haiku-20240307",
+                    "max_tokens": 150,
+                    "system": system_prompt,
+                    "messages": [{"role": "user", "content": f"Analiza: '{text}'"}]
+                }
+            )
+        
+        if response.status_code == 200:
+            data = response.json()
+            content = data.get("content", [{}])[0].get("text", "").strip()
+            
+            # Limpiar markdown
+            content = content.replace("```json", "").replace("```", "").strip()
+            result = json.loads(content)
+            
+            intent = result.get("intent", "other")
+            if intent not in ["greeting", "search", "business_search", "more_options", "no_more_options", "other"]:
+                intent = "other"
+            
+            craving = result.get("craving")
+            if craving and isinstance(craving, str):
+                craving = craving.strip()
+                if craving.lower() in ["null", "none", ""]:
+                    craving = None
+            else:
+                craving = None
+            
+            business_name = result.get("business_name")
+            if business_name and isinstance(business_name, str):
+                business_name = business_name.strip()
+                if business_name.lower() in ["null", "none", ""]:
+                    business_name = None
+            else:
+                business_name = None
+            
+            print(f"[AI-INTENT-CLAUDE] {wa_id}: intent={intent}, craving={craving}, business_name={business_name}")
+            
+            return {
+                "intent": intent,
+                "craving": craving,
+                "needs_location": bool(result.get("needs_location", False)),
+                "business_name": business_name
+            }
+        else:
+            print(f"[AI-INTENT-CLAUDE] {wa_id}: Error HTTP {response.status_code}")
+            return None
+            
+    except Exception as e:
+        print(f"[AI-INTENT-CLAUDE] {wa_id}: Error: {e}")
+        return None
+
 async def expand_search_terms_with_ai(craving: str, language: str, wa_id: str) -> List[str]:
     """
     Expande términos de búsqueda de manera CONSERVADORA.
@@ -1435,6 +1521,14 @@ Responde SOLO una lista separada por comas, sin explicaciones."""
         return [craving]
 
 async def extract_intent_with_ai(text: str, language: str, name: str, wa_id: str) -> Dict[str, Any]:
+    # ✅ INTENTAR CON CLAUDE PRIMERO (más barato)
+    if ANTHROPIC_API_KEY:
+        result = await extract_intent_with_claude(text, language, name, wa_id)
+        if result:
+            return result
+        print(f"[AI-INTENT] {wa_id}: Claude falló, intentando OpenAI...")
+    
+    # FALLBACK A OPENAI
     if not OPENAI_API_KEY:
         print(f"[AI-INTENT] {wa_id}: Sin API key, usando fallback")
         return {"intent": "unknown", "craving": None, "needs_location": False, "business_name": None}
