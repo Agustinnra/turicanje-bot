@@ -6,3 +6,4 @@ psycopg[binary]
 psycopg-pool
 pytz
 apscheduler==3.10.4
+openai
