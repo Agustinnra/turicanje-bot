@@ -253,9 +253,9 @@ async def get_loyalty_user_by_phone(wa_id: str) -> Optional[dict]:
             nombre,
             email,
             codigo_qr,
-            puntos,
+            saldo_puntos,
             suscripcion_activa,
-            fecha_vencimiento,
+            suscripcion_fecha_vencimiento,
             created_at
         FROM loyalty_users
         WHERE telefono IN ({placeholders})
@@ -270,7 +270,7 @@ async def get_loyalty_user_by_phone(wa_id: str) -> Optional[dict]:
                 user = cur.fetchone()
         
         if user:
-            print(f"[LOYALTY] ✅ Usuario encontrado: {user.get('nombre', 'Sin nombre')} - {user.get('puntos', 0)} puntos")
+            print(f"[LOYALTY] ✅ Usuario encontrado: {user.get('nombre', 'Sin nombre')} - {user.get('saldo_puntos', 0)} puntos")
             return dict(user)
         else:
             print(f"[LOYALTY] ⚠️ Usuario no encontrado para {wa_id[:6]}***")
@@ -289,9 +289,9 @@ async def handle_loyalty_points_query(wa_id: str, phone_number_id: str = None):
     
     if user:
         nombre = user.get('nombre') or 'amigo'
-        puntos = user.get('puntos') or 0
+        puntos = user.get('saldo_puntos') or 0
         suscripcion_activa = user.get('suscripcion_activa', False)
-        fecha_vencimiento = user.get('fecha_vencimiento')
+        fecha_vencimiento = user.get('suscripcion_fecha_vencimiento')
         
         # Formatear puntos con separador de miles
         puntos_formateados = f"{int(puntos):,}".replace(',', ',')
@@ -352,7 +352,7 @@ async def handle_loyalty_qr_query(wa_id: str, phone_number_id: str = None):
     if user:
         codigo_qr = user.get('codigo_qr')
         nombre = user.get('nombre') or 'amigo'
-        puntos = user.get('puntos') or 0
+        puntos = user.get('saldo_puntos') or 0
         
         if codigo_qr:
             # Generar URL de imagen QR usando api.qrserver.com (gratis, sin API key)
