@@ -24,6 +24,7 @@ def normalizar_producto(producto: str) -> List[str]:
     producto_lower = producto.lower().strip()
     variaciones = [producto_lower]
     
+    # Singular/plural para palabras simples
     if producto_lower.endswith('s') and len(producto_lower) > 3:
         variaciones.append(producto_lower[:-1])
     if producto_lower.endswith('es') and len(producto_lower) > 4:
@@ -31,6 +32,25 @@ def normalizar_producto(producto: str) -> List[str]:
     if not producto_lower.endswith('s'):
         variaciones.append(producto_lower + 's')
     
+    # Para frases con múltiples palabras, buscar también por palabras clave
+    palabras = producto_lower.split()
+    if len(palabras) > 1:
+        # Agregar primera palabra (ej: "tacos" de "tacos de pastor")
+        variaciones.append(palabras[0])
+        if palabras[0].endswith('s'):
+            variaciones.append(palabras[0][:-1])  # singular
+        # Agregar última palabra si es relevante (ej: "pastor")
+        if palabras[-1] not in ['de', 'con', 'al', 'la', 'el']:
+            variaciones.append(palabras[-1])
+        # Agregar sin preposiciones (ej: "tacos pastor", "taco pastor")
+        sin_prep = ' '.join([p for p in palabras if p not in ['de', 'con', 'al', 'la', 'el']])
+        if sin_prep != producto_lower:
+            variaciones.append(sin_prep)
+            # También singular
+            if sin_prep.startswith('tacos'):
+                variaciones.append(sin_prep.replace('tacos', 'taco', 1))
+    
+    # Sinónimos específicos
     sinonimos = {
         'chela': ['cerveza', 'cervezas'],
         'chelas': ['cerveza', 'cervezas'],
@@ -51,6 +71,11 @@ def normalizar_producto(producto: str) -> List[str]:
     
     if producto_lower in sinonimos:
         variaciones.extend(sinonimos[producto_lower])
+    
+    # También buscar sinónimos de palabras individuales
+    for palabra in palabras:
+        if palabra in sinonimos:
+            variaciones.extend(sinonimos[palabra])
     
     return list(dict.fromkeys(variaciones))
 
