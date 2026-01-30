@@ -1058,13 +1058,15 @@ PAGINACIÓN:
 - "no", "ya no", "suficiente" → no_more_options
 
 PRESUPUESTO:
-- Si mencionan dinero/pesos y cantidad de personas, extrae budget y personas
-- "cervezas para 4, tenemos 600 pesos" → budget: 600, personas: 4
-- "hamburguesas con 500 pesos para 3" → budget: 500, personas: 3
-- Si no mencionan presupuesto → budget: null, personas: null
+- Si mencionan dinero/pesos y cantidad de personas, extrae budget, personas y productos
+- Extrae TODOS los productos mencionados como array
+- "tacos y cervezas para 4, tenemos 600 pesos" → budget: 600, personas: 4, productos: ["tacos", "cervezas"]
+- "hamburguesas con 500 pesos para 3" → budget: 500, personas: 3, productos: ["hamburguesas"]
+- "pizzas, refrescos y papas para 5 con 800" → budget: 800, personas: 5, productos: ["pizzas", "refrescos", "papas"]
+- Si no mencionan presupuesto → budget: null, personas: null, productos: null
 
 Responde SOLO en JSON:
-{{"intent": "greeting|search|business_search|more_options|no_more_options|other", "craving": "tipo comida o null", "needs_location": true/false, "business_name": "nombre o null", "budget": numero o null, "personas": numero o null}}"""
+{{"intent": "...", "craving": "...", "needs_location": ..., "business_name": "...", "budget": numero o null, "personas": numero o null, "productos": ["producto1", "producto2"] o null}}"""
 
         async with httpx.AsyncClient(timeout=15) as client:
             response = await client.post(
@@ -1118,7 +1120,8 @@ Responde SOLO en JSON:
                 "needs_location": bool(result.get("needs_location", False)),
                 "business_name": business_name,
                 "budget": result.get("budget"),
-                "personas": result.get("personas")
+                "personas": result.get("personas"),
+                "productos": result.get("productos")
             }
         else:
             print(f"[AI-INTENT-CLAUDE] {wa_id}: Error HTTP {response.status_code}")
@@ -2770,15 +2773,18 @@ async def handle_text_message(wa_id: str, text: str, phone_number_id: str = None
             # No encontró exacto, usar IA normal
             intent_data = await extract_intent_with_ai(text, session["language"], session["name"], wa_id)
 
-            # ✅ NUEVO: Detectar búsqueda con presupuesto
+        # ✅ Detectar búsqueda con presupuesto
         budget = intent_data.get("budget")
         personas = intent_data.get("personas") or 1
-    
-        if budget and intent_data.get("craving"):
-            print(f"[BUDGET-DETECT] Detectado presupuesto: ${budget} para {personas} personas, producto: {intent_data.get('craving')}")
+        productos = intent_data.get("productos")  # Array de productos
+
+        if budget and (productos or intent_data.get("craving")):
+            # Si hay array de productos, usarlo; si no, usar craving como fallback
+            productos_buscar = productos if productos else [intent_data.get("craving")]
+            print(f"[BUDGET-DETECT] Detectado presupuesto: ${budget} para {personas} personas, productos: {productos_buscar}")
             await menu_budget.handle_budget_search(
                 wa_id,
-                intent_data.get("craving"),
+                productos_buscar,
                 int(budget),
                 int(personas),
                 phone_number_id
