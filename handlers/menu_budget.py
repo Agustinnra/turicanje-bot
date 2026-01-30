@@ -1,7 +1,8 @@
 """
 Handler de Menú con Presupuesto.
 Permite buscar productos con filtro de presupuesto y personas.
-Agrupa resultados por NEGOCIO para que todo se compre en un solo lugar.
+Agrupa resultados por NEGOCIO - solo muestra lugares con TODOS los productos.
+Prioriza: cashback > mejor precio > menor sobra
 """
 from typing import Optional, List, Dict, Any, Union
 import psycopg.rows
@@ -43,6 +44,9 @@ def normalizar_producto(producto: str) -> List[str]:
         'tacos': ['taco', 'tacos'],
         'cafe': ['café', 'cafés', 'coffee'],
         'café': ['café', 'cafés', 'coffee'],
+        'pizza': ['pizza', 'pizzas'],
+        'torta': ['torta', 'tortas'],
+        'cerveza': ['cerveza', 'cervezas', 'chela', 'chelas'],
     }
     
     if producto_lower in sinonimos:
@@ -58,7 +62,7 @@ async def search_menu_by_negocio(
 ) -> Dict[str, Dict[str, Any]]:
     """
     Busca múltiples productos y agrupa por negocio.
-    Solo incluye negocios que tengan AL MENOS uno de los productos.
+    Incluye info de cashback y prioridad para ordenamiento.
     """
     try:
         pool = pool_getter()
@@ -66,7 +70,6 @@ async def search_menu_by_negocio(
             print("[MENU-BUDGET] ❌ No hay conexión a BD")
             return {}
         
-        # Estructura: {place_id: {negocio, address, cashback, productos: {producto: [items]}}}
         negocios_data = {}
         
         for producto in productos:
@@ -79,14 +82,20 @@ async def search_menu_by_negocio(
             sql = f"""
             SELECT 
                 m.id, m.nombre, m.precio, m.categoria, m.place_id,
-                p.name as negocio, p.address, p.cashback
+                p.name as negocio, p.address, p.cashback, p.priority,
+                p.plan_activo, p.plan_fecha_vencimiento
             FROM menu_items m
             JOIN places p ON m.place_id = p.id
             WHERE m.disponible = true
+              AND p.is_active = true
               AND m.precio <= %s
               AND ({conditions})
-            ORDER BY m.precio ASC
-            LIMIT 20;
+            ORDER BY 
+                CASE WHEN p.cashback = true THEN 0 ELSE 1 END ASC,
+                CASE WHEN p.plan_fecha_vencimiento >= CURRENT_DATE THEN 0 ELSE 1 END ASC,
+                p.priority DESC NULLS LAST,
+                m.precio ASC
+            LIMIT 30;
             """
             
             params = [presupuesto] + patterns
@@ -104,6 +113,8 @@ async def search_menu_by_negocio(
                         'negocio': row['negocio'],
                         'address': row['address'],
                         'cashback': row['cashback'],
+                        'priority': row['priority'] or 0,
+                        'plan_activo': row['plan_activo'],
                         'productos': {}
                     }
                 
@@ -153,7 +164,7 @@ def calcular_combinacion(negocio_data: Dict, productos: List[str], presupuesto: 
                     'producto': producto,
                     'nombre': item['nombre'],
                     'precio': item['precio'],
-                    'cantidad': cantidad,
+                    'cantidad': int(cantidad),
                     'gasto': gasto
                 })
     
@@ -173,10 +184,10 @@ def format_budget_response_by_negocio(
     presupuesto: int,
     personas: int
 ) -> str:
-    """Formatea respuesta agrupada por negocio."""
+    """Formatea respuesta agrupada por negocio. Solo muestra los que tienen TODO."""
     
     if not negocios_data:
-        productos_str = ", ".join(productos)
+        productos_str = " y ".join(productos)
         return f"""😕 No encontré *{productos_str}* dentro de tu presupuesto de ${presupuesto:,} para {personas} personas.
 
 💡 *Sugerencias:*
@@ -187,43 +198,57 @@ def format_budget_response_by_negocio(
     resultados = []
     for place_id, data in negocios_data.items():
         combo = calcular_combinacion(data, productos, presupuesto, personas)
-        if combo['combinacion']:  # Solo si tiene al menos algo
+        if combo['combinacion']:
             resultados.append({
                 'place_id': place_id,
                 'negocio': data['negocio'],
                 'cashback': data['cashback'],
+                'priority': data['priority'],
                 **combo
             })
     
-    if not resultados:
-        return f"😕 No encontré combinaciones dentro de tu presupuesto de ${presupuesto:,}"
+    # Filtrar SOLO los que tienen TODOS los productos
+    resultados_completos = [r for r in resultados if r['tiene_todo']]
     
-    # Ordenar: primero los que tienen todo, luego por menor sobra (mejor aprovechamiento)
-    resultados.sort(key=lambda x: (-x['tiene_todo'], -x['productos_encontrados'], x['sobra']))
+    if not resultados_completos:
+        productos_str = " y ".join(productos)
+        return f"""😕 No encontré un lugar que tenga *{productos_str}* dentro de tu presupuesto de ${presupuesto:,}.
+
+💡 *Sugerencias:*
+- Intenta con un presupuesto mayor
+- Busca menos productos a la vez
+- Escribe cada producto por separado"""
+    
+    # Ordenar por: cashback primero, luego prioridad, luego menor sobra
+    resultados_completos.sort(key=lambda x: (
+        0 if x['cashback'] else 1,  # Cashback primero
+        -x['priority'],              # Mayor prioridad
+        x['sobra']                   # Menor sobra (mejor aprovechamiento)
+    ))
     
     lines = [f"🍽️ *Opciones para {personas} personas con ${presupuesto:,}*\n"]
     
-    # Mostrar top 3 negocios
-    for i, r in enumerate(resultados[:3]):
+    # Mostrar top 3 negocios que tienen todo
+    for i, r in enumerate(resultados_completos[:3]):
         cashback_badge = " 💰" if r['cashback'] else ""
-        completo = " ✅" if r['tiene_todo'] else f" ({r['productos_encontrados']}/{r['productos_pedidos']} productos)"
+        emoji = "📍" if i == 0 else "📌"
         
-        lines.append(f"{'📍' if i == 0 else '📌'} *{r['negocio']}*{cashback_badge}{completo}")
+        lines.append(f"{emoji} *{r['negocio']}*{cashback_badge}")
         
         for item in r['combinacion']:
-            por_persona = item['cantidad'] // personas if personas > 0 else item['cantidad']
             lines.append(f"   • {item['cantidad']}x {item['nombre']} (${item['gasto']:.0f})")
         
-        lines.append(f"   💰 Total: ${r['total_gasto']:.0f} | Te sobran ${r['sobra']:.0f}")
+        if r['sobra'] > 0:
+            lines.append(f"   💵 Total: ${r['total_gasto']:.0f} | Sobran ${r['sobra']:.0f}")
+        else:
+            lines.append(f"   💵 Total: ${r['total_gasto']:.0f} | ¡Exacto!")
         lines.append("")
     
-    # Destacar mejor opción
-    mejor = resultados[0]
-    if mejor['tiene_todo']:
-        lines.append(f"✅ *Recomendación:* {mejor['negocio']}")
-        lines.append(f"   Tiene todo lo que buscas y te sobran ${mejor['sobra']:.0f}")
-    else:
-        lines.append(f"⚠️ Ningún lugar tiene todo. {mejor['negocio']} tiene más opciones.")
+    # Recomendación final
+    mejor = resultados_completos[0]
+    lines.append(f"✅ *Recomendación:* {mejor['negocio']}")
+    if mejor['cashback']:
+        lines.append("   💰 ¡Acumulas puntos con tu compra!")
     
     return "\n".join(lines)
 
