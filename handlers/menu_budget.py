@@ -184,7 +184,7 @@ def format_budget_response_by_negocio(
     presupuesto: int,
     personas: int
 ) -> str:
-    """Formatea respuesta agrupada por negocio. Solo muestra los que tienen TODO."""
+    """Formatea respuesta agrupada por negocio. Si no hay completo, sugiere por separado."""
     
     if not negocios_data:
         productos_str = " y ".join(productos)
@@ -204,51 +204,114 @@ def format_budget_response_by_negocio(
                 'negocio': data['negocio'],
                 'cashback': data['cashback'],
                 'priority': data['priority'],
+                'productos_disponibles': data['productos'],
                 **combo
             })
     
-    # Filtrar SOLO los que tienen TODOS los productos
+    # Filtrar los que tienen TODOS los productos
     resultados_completos = [r for r in resultados if r['tiene_todo']]
     
-    if not resultados_completos:
-        productos_str = " y ".join(productos)
-        return f"""😕 No encontré un lugar que tenga *{productos_str}* dentro de tu presupuesto de ${presupuesto:,}.
+    # ========== CASO 1: HAY LUGARES CON TODO ==========
+    if resultados_completos:
+        resultados_completos.sort(key=lambda x: (
+            0 if x['cashback'] else 1,
+            -x['priority'],
+            x['sobra']
+        ))
+        
+        lines = [f"🍽️ *Opciones para {personas} personas con ${presupuesto:,}*\n"]
+        
+        for i, r in enumerate(resultados_completos[:3]):
+            cashback_badge = " 💰" if r['cashback'] else ""
+            emoji = "📍" if i == 0 else "📌"
+            
+            lines.append(f"{emoji} *{r['negocio']}*{cashback_badge}")
+            
+            for item in r['combinacion']:
+                lines.append(f"   • {item['cantidad']}x {item['nombre']} (${item['gasto']:.0f})")
+            
+            if r['sobra'] > 0:
+                lines.append(f"   💵 Total: ${r['total_gasto']:.0f} | Sobran ${r['sobra']:.0f}")
+            else:
+                lines.append(f"   💵 Total: ${r['total_gasto']:.0f} | ¡Exacto!")
+            lines.append("")
+        
+        mejor = resultados_completos[0]
+        lines.append(f"✅ *Recomendación:* {mejor['negocio']}")
+        if mejor['cashback']:
+            lines.append("   💰 ¡Acumulas puntos con tu compra!")
+        
+        return "\n".join(lines)
+    
+    # ========== CASO 2: NO HAY LUGAR CON TODO - SUGERIR POR SEPARADO ==========
+    return format_opcion_separada(negocios_data, productos, presupuesto, personas)
 
-💡 *Sugerencias:*
-- Intenta con un presupuesto mayor
-- Busca menos productos a la vez
-- Escribe cada producto por separado"""
+
+def format_opcion_separada(
+    negocios_data: Dict[str, Dict],
+    productos: List[str],
+    presupuesto: int,
+    personas: int
+) -> str:
+    """
+    Cuando no hay un lugar con todo, sugiere comprar cada producto 
+    en el mejor lugar, dividiendo el presupuesto.
+    """
+    num_productos = len(productos)
+    presupuesto_por_producto = presupuesto // num_productos
     
-    # Ordenar por: cashback primero, luego prioridad, luego menor sobra
-    resultados_completos.sort(key=lambda x: (
-        0 if x['cashback'] else 1,  # Cashback primero
-        -x['priority'],              # Mayor prioridad
-        x['sobra']                   # Menor sobra (mejor aprovechamiento)
-    ))
+    lines = [f"🍽️ *Búsqueda para {personas} personas con ${presupuesto:,}*\n"]
+    lines.append("⚠️ *No hay un lugar con todo lo que buscas.*")
+    lines.append("Pero si tienes ganas, puedes comprar por separado:\n")
     
-    lines = [f"🍽️ *Opciones para {personas} personas con ${presupuesto:,}*\n"]
+    sugerencias = []
+    total_gasto = 0
     
-    # Mostrar top 3 negocios que tienen todo
-    for i, r in enumerate(resultados_completos[:3]):
-        cashback_badge = " 💰" if r['cashback'] else ""
-        emoji = "📍" if i == 0 else "📌"
+    for producto in productos:
+        mejor_opcion = None
+        mejor_precio = float('inf')
         
-        lines.append(f"{emoji} *{r['negocio']}*{cashback_badge}")
+        # Buscar el mejor lugar para este producto
+        for place_id, data in negocios_data.items():
+            if producto in data['productos'] and data['productos'][producto]:
+                item = data['productos'][producto][0]  # El más barato
+                if item['precio'] < mejor_precio:
+                    mejor_precio = item['precio']
+                    mejor_opcion = {
+                        'negocio': data['negocio'],
+                        'cashback': data['cashback'],
+                        'nombre': item['nombre'],
+                        'precio': item['precio']
+                    }
         
-        for item in r['combinacion']:
-            lines.append(f"   • {item['cantidad']}x {item['nombre']} (${item['gasto']:.0f})")
-        
-        if r['sobra'] > 0:
-            lines.append(f"   💵 Total: ${r['total_gasto']:.0f} | Sobran ${r['sobra']:.0f}")
-        else:
-            lines.append(f"   💵 Total: ${r['total_gasto']:.0f} | ¡Exacto!")
+        if mejor_opcion:
+            cantidad = min(personas, presupuesto_por_producto // int(mejor_opcion['precio']))
+            if cantidad > 0:
+                gasto = mejor_opcion['precio'] * cantidad
+                total_gasto += gasto
+                sugerencias.append({
+                    'producto': producto,
+                    'cantidad': cantidad,
+                    'gasto': gasto,
+                    **mejor_opcion
+                })
+    
+    if not sugerencias:
+        productos_str = " y ".join(productos)
+        return f"😕 No encontré opciones para *{productos_str}* dentro de tu presupuesto."
+    
+    # Mostrar sugerencias
+    for s in sugerencias:
+        cashback_badge = " 💰" if s['cashback'] else ""
+        lines.append(f"📍 *{s['producto'].upper()}* en {s['negocio']}{cashback_badge}")
+        lines.append(f"   • {s['cantidad']}x {s['nombre']} = ${s['gasto']:.0f}")
         lines.append("")
     
-    # Recomendación final
-    mejor = resultados_completos[0]
-    lines.append(f"✅ *Recomendación:* {mejor['negocio']}")
-    if mejor['cashback']:
-        lines.append("   💰 ¡Acumulas puntos con tu compra!")
+    sobra = presupuesto - total_gasto
+    lines.append(f"━━━━━━━━━━━━━━━")
+    lines.append(f"💵 *Total:* ${total_gasto:.0f}")
+    if sobra > 0:
+        lines.append(f"💰 *Te sobran:* ${sobra:.0f}")
     
     return "\n".join(lines)
 
