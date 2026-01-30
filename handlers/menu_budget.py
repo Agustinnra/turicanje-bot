@@ -1,7 +1,7 @@
 """
 Handler de Menú con Presupuesto.
 Permite buscar productos con filtro de presupuesto y personas.
-Soporta múltiples productos: "tacos y cervezas para 4 con 600 pesos"
+Agrupa resultados por NEGOCIO para que todo se compre en un solo lugar.
 """
 from typing import Optional, List, Dict, Any, Union
 import psycopg.rows
@@ -19,14 +19,10 @@ def init(get_pool_func, send_msg_func):
 
 
 def normalizar_producto(producto: str) -> List[str]:
-    """
-    Genera variaciones de búsqueda para un producto.
-    Incluye singular/plural y sinónimos comunes.
-    """
+    """Genera variaciones de búsqueda para un producto."""
     producto_lower = producto.lower().strip()
     variaciones = [producto_lower]
     
-    # Singular/plural
     if producto_lower.endswith('s') and len(producto_lower) > 3:
         variaciones.append(producto_lower[:-1])
     if producto_lower.endswith('es') and len(producto_lower) > 4:
@@ -34,22 +30,17 @@ def normalizar_producto(producto: str) -> List[str]:
     if not producto_lower.endswith('s'):
         variaciones.append(producto_lower + 's')
     
-    # Sinónimos comunes
     sinonimos = {
         'chela': ['cerveza', 'cervezas'],
         'chelas': ['cerveza', 'cervezas'],
-        'birria': ['cerveza', 'cervezas'],
-        'birrias': ['cerveza', 'cervezas'],
         'refresco': ['refresco', 'refrescos', 'soda', 'sodas'],
-        'soda': ['refresco', 'refrescos', 'soda', 'sodas'],
-        'hamburguesa': ['hamburguesa', 'hamburguesas', 'burger', 'burgers'],
-        'burger': ['hamburguesa', 'hamburguesas', 'burger', 'burgers'],
-        'papas': ['papas', 'papa', 'papas fritas', 'french fries'],
-        'agua': ['agua', 'aguas', 'botella de agua'],
+        'soda': ['refresco', 'refrescos'],
+        'hamburguesa': ['hamburguesa', 'hamburguesas', 'burger'],
+        'burger': ['hamburguesa', 'hamburguesas'],
+        'papas': ['papas', 'papa', 'papas fritas'],
+        'agua': ['agua', 'aguas'],
         'taco': ['taco', 'tacos'],
         'tacos': ['taco', 'tacos'],
-        'torta': ['torta', 'tortas'],
-        'pizza': ['pizza', 'pizzas'],
         'cafe': ['café', 'cafés', 'coffee'],
         'café': ['café', 'cafés', 'coffee'],
     }
@@ -60,15 +51,14 @@ def normalizar_producto(producto: str) -> List[str]:
     return list(dict.fromkeys(variaciones))
 
 
-async def search_menu_with_budget(
+async def search_menu_by_negocio(
     productos: List[str], 
     presupuesto: int, 
-    personas: int = 1,
-    limit: int = 15
-) -> Dict[str, List[Dict[str, Any]]]:
+    personas: int = 1
+) -> Dict[str, Dict[str, Any]]:
     """
-    Busca múltiples productos en menu_items que quepan en el presupuesto.
-    Retorna dict con resultados por producto.
+    Busca múltiples productos y agrupa por negocio.
+    Solo incluye negocios que tengan AL MENOS uno de los productos.
     """
     try:
         pool = pool_getter()
@@ -76,13 +66,13 @@ async def search_menu_with_budget(
             print("[MENU-BUDGET] ❌ No hay conexión a BD")
             return {}
         
-        resultados_por_producto = {}
+        # Estructura: {place_id: {negocio, address, cashback, productos: {producto: [items]}}}
+        negocios_data = {}
         
         for producto in productos:
             variaciones = normalizar_producto(producto)
             print(f"[MENU-BUDGET] Buscando '{producto}' con variaciones: {variaciones}")
             
-            # Construir condiciones OR para cada variación
             conditions = " OR ".join(["m.nombre ILIKE %s" for _ in variaciones])
             patterns = [f"%{v}%" for v in variaciones]
             
@@ -95,48 +85,40 @@ async def search_menu_with_budget(
             WHERE m.disponible = true
               AND m.precio <= %s
               AND ({conditions})
-            ORDER BY 
-                CASE WHEN p.cashback = true THEN 0 ELSE 1 END ASC,
-                m.precio ASC
-            LIMIT %s;
+            ORDER BY m.precio ASC
+            LIMIT 20;
             """
             
-            params = [presupuesto] + patterns + [limit]
+            params = [presupuesto] + patterns
             
             with pool.connection() as conn:
                 with conn.cursor(row_factory=psycopg.rows.dict_row) as cur:
                     cur.execute(sql, tuple(params))
                     rows = cur.fetchall()
             
-            # Procesar resultados
-            results = []
             for row in rows:
-                precio = float(row['precio'])
-                cantidad_total = int(presupuesto / precio)
-                cantidad_por_persona = cantidad_total // personas if personas > 0 else cantidad_total
+                place_id = row['place_id']
                 
-                results.append({
+                if place_id not in negocios_data:
+                    negocios_data[place_id] = {
+                        'negocio': row['negocio'],
+                        'address': row['address'],
+                        'cashback': row['cashback'],
+                        'productos': {}
+                    }
+                
+                if producto not in negocios_data[place_id]['productos']:
+                    negocios_data[place_id]['productos'][producto] = []
+                
+                precio = float(row['precio'])
+                negocios_data[place_id]['productos'][producto].append({
                     'id': row['id'],
                     'nombre': row['nombre'],
                     'precio': precio,
-                    'categoria': row['categoria'],
-                    'place_id': row['place_id'],
-                    'negocio': row['negocio'],
-                    'address': row['address'],
-                    'cashback': row['cashback'],
-                    'cantidad_total': cantidad_total,
-                    'cantidad_por_persona': cantidad_por_persona,
-                    'gasto_total': precio * cantidad_total,
-                    'sobra': presupuesto - (precio * cantidad_total)
+                    'categoria': row['categoria']
                 })
-            
-            if results:
-                resultados_por_producto[producto] = results
-                print(f"[MENU-BUDGET] ✅ '{producto}': {len(results)} opciones encontradas")
-            else:
-                print(f"[MENU-BUDGET] ❌ '{producto}': sin resultados")
         
-        return resultados_por_producto
+        return negocios_data
         
     except Exception as e:
         print(f"[MENU-BUDGET] ❌ Error: {e}")
@@ -145,69 +127,103 @@ async def search_menu_with_budget(
         return {}
 
 
-def format_budget_response_multiple(
-    resultados: Dict[str, List[Dict[str, Any]]], 
+def calcular_combinacion(negocio_data: Dict, productos: List[str], presupuesto: int, personas: int) -> Dict:
+    """
+    Calcula la mejor combinación de productos en UN negocio.
+    Divide el presupuesto equitativamente entre productos.
+    """
+    productos_disponibles = negocio_data['productos']
+    num_productos = len(productos)
+    presupuesto_por_tipo = presupuesto // num_productos if num_productos > 0 else presupuesto
+    
+    combinacion = []
+    total_gasto = 0
+    productos_encontrados = 0
+    
+    for producto in productos:
+        if producto in productos_disponibles and productos_disponibles[producto]:
+            # Tomar el más barato de este producto
+            item = productos_disponibles[producto][0]
+            cantidad = presupuesto_por_tipo // int(item['precio'])
+            if cantidad > 0:
+                gasto = item['precio'] * cantidad
+                total_gasto += gasto
+                productos_encontrados += 1
+                combinacion.append({
+                    'producto': producto,
+                    'nombre': item['nombre'],
+                    'precio': item['precio'],
+                    'cantidad': cantidad,
+                    'gasto': gasto
+                })
+    
+    return {
+        'combinacion': combinacion,
+        'total_gasto': total_gasto,
+        'sobra': presupuesto - total_gasto,
+        'productos_encontrados': productos_encontrados,
+        'productos_pedidos': num_productos,
+        'tiene_todo': productos_encontrados == num_productos
+    }
+
+
+def format_budget_response_by_negocio(
+    negocios_data: Dict[str, Dict],
     productos: List[str],
     presupuesto: int,
     personas: int
 ) -> str:
-    """
-    Formatea la respuesta del bot con múltiples productos.
-    """
-    if not resultados:
+    """Formatea respuesta agrupada por negocio."""
+    
+    if not negocios_data:
         productos_str = ", ".join(productos)
         return f"""😕 No encontré *{productos_str}* dentro de tu presupuesto de ${presupuesto:,} para {personas} personas.
 
 💡 *Sugerencias:*
 - Intenta con un presupuesto mayor
-- Busca otros productos
-- Escribe solo el nombre del producto para ver opciones sin límite de precio"""
+- Busca otros productos"""
     
-    lines = [f"🍽️ *Búsqueda para {personas} personas con ${presupuesto:,}*\n"]
+    # Calcular combinaciones para cada negocio
+    resultados = []
+    for place_id, data in negocios_data.items():
+        combo = calcular_combinacion(data, productos, presupuesto, personas)
+        if combo['combinacion']:  # Solo si tiene al menos algo
+            resultados.append({
+                'place_id': place_id,
+                'negocio': data['negocio'],
+                'cashback': data['cashback'],
+                **combo
+            })
     
-    mejor_combinacion = []
+    if not resultados:
+        return f"😕 No encontré combinaciones dentro de tu presupuesto de ${presupuesto:,}"
     
-    for producto, items in resultados.items():
-        lines.append(f"━━━ *{producto.upper()}* ━━━")
+    # Ordenar: primero los que tienen todo, luego por menor sobra (mejor aprovechamiento)
+    resultados.sort(key=lambda x: (-x['tiene_todo'], -x['productos_encontrados'], x['sobra']))
+    
+    lines = [f"🍽️ *Opciones para {personas} personas con ${presupuesto:,}*\n"]
+    
+    # Mostrar top 3 negocios
+    for i, r in enumerate(resultados[:3]):
+        cashback_badge = " 💰" if r['cashback'] else ""
+        completo = " ✅" if r['tiene_todo'] else f" ({r['productos_encontrados']}/{r['productos_pedidos']} productos)"
         
-        # Mostrar top 3 por producto
-        for item in items[:3]:
-            cashback_badge = " 💰" if item['cashback'] else ""
-            lines.append(f"📍 {item['negocio']}{cashback_badge}")
-            lines.append(f"   • {item['nombre']}: ${item['precio']:.0f}")
-            lines.append(f"   → Alcanzan *{item['cantidad_total']}* ({item['cantidad_por_persona']} c/u)")
+        lines.append(f"{'📍' if i == 0 else '📌'} *{r['negocio']}*{cashback_badge}{completo}")
         
-        # Guardar mejor opción de cada producto
-        if items:
-            mejor_combinacion.append(items[0])
+        for item in r['combinacion']:
+            por_persona = item['cantidad'] // personas if personas > 0 else item['cantidad']
+            lines.append(f"   • {item['cantidad']}x {item['nombre']} (${item['gasto']:.0f})")
         
+        lines.append(f"   💰 Total: ${r['total_gasto']:.0f} | Te sobran ${r['sobra']:.0f}")
         lines.append("")
     
-    # Calcular combinación sugerida
-    if len(mejor_combinacion) > 1:
-        lines.append("━━━ *💡 COMBINACIÓN SUGERIDA* ━━━")
-        
-        # Dividir presupuesto equitativamente
-        presupuesto_por_producto = presupuesto // len(mejor_combinacion)
-        total_gastado = 0
-        
-        for item in mejor_combinacion:
-            cantidad = int(presupuesto_por_producto / item['precio'])
-            if cantidad > 0:
-                gasto = item['precio'] * cantidad
-                total_gastado += gasto
-                lines.append(f"• {cantidad}x {item['nombre']} (${gasto:.0f})")
-        
-        sobra = presupuesto - total_gastado
-        if sobra > 0:
-            lines.append(f"💵 Te sobran ${sobra:.0f}")
-    elif mejor_combinacion:
-        # Solo un producto
-        mejor = mejor_combinacion[0]
-        lines.append(f"✅ *Mejor opción:* {mejor['nombre']} en {mejor['negocio']}")
-        lines.append(f"   ${mejor['precio']:.0f} × {mejor['cantidad_total']} = ${mejor['gasto_total']:.0f}")
-        if mejor['sobra'] > 0:
-            lines.append(f"   💵 Te sobran ${mejor['sobra']:.0f}")
+    # Destacar mejor opción
+    mejor = resultados[0]
+    if mejor['tiene_todo']:
+        lines.append(f"✅ *Recomendación:* {mejor['negocio']}")
+        lines.append(f"   Tiene todo lo que buscas y te sobran ${mejor['sobra']:.0f}")
+    else:
+        lines.append(f"⚠️ Ningún lugar tiene todo. {mejor['negocio']} tiene más opciones.")
     
     return "\n".join(lines)
 
@@ -219,19 +235,16 @@ async def handle_budget_search(
     personas: int,
     phone_number_id: str = None
 ):
-    """
-    Handler principal para búsqueda con presupuesto.
-    Acepta un producto (str) o múltiples (list).
-    """
-    # Normalizar a lista
+    """Handler principal para búsqueda con presupuesto."""
+    
     if isinstance(productos, str):
         productos = [productos]
     
     print(f"[MENU-BUDGET] Usuario {wa_id[:6]}***: {productos} para {personas} con ${presupuesto}")
     
-    resultados = await search_menu_with_budget(productos, presupuesto, personas)
+    negocios_data = await search_menu_by_negocio(productos, presupuesto, personas)
     
-    response = format_budget_response_multiple(resultados, productos, presupuesto, personas)
+    response = format_budget_response_by_negocio(negocios_data, productos, presupuesto, personas)
     
     await send_message(wa_id, response, phone_number_id)
     
