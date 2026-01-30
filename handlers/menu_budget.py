@@ -115,13 +115,12 @@ def buscar_producto_en_db(pool, producto: str, presupuesto: int, modo: str = 'ex
         
     elif modo == 'amplio' and palabra_especifica:
         # Búsqueda amplia CON palabra específica: debe contener AMBAS
-        # Ej: "tacos de pastor" → busca productos con "taco" Y "pastor"
         variaciones_base = [palabra_base, palabra_base_singular, palabra_base + 's']
         variaciones_base = list(dict.fromkeys(variaciones_base))
         
         conditions = " OR ".join(["m.nombre ILIKE %s" for _ in variaciones_base])
-        params = [presupuesto] + [f"%{v}%" for v in variaciones_base]
-        extra_condition = f" AND m.nombre ILIKE '%{palabra_especifica}%'"
+        params = [presupuesto] + [f"%{v}%" for v in variaciones_base] + [f"%{palabra_especifica}%"]
+        extra_condition = " AND m.nombre ILIKE %s"
         
     else:
         # Solo palabra base (sin requerir palabra específica)
