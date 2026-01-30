@@ -2,7 +2,8 @@
 Handler de Menú con Presupuesto.
 Permite buscar productos con filtro de presupuesto y personas.
 Agrupa resultados por NEGOCIO - solo muestra lugares con TODOS los productos.
-Prioriza: cashback > mejor precio > menor sobra
+Búsqueda en capas: primero exacto, luego amplio.
+Prioriza: cashback > plan activo > prioridad > mejor precio
 """
 from typing import Optional, List, Dict, Any, Union
 import psycopg.rows
@@ -20,11 +21,11 @@ def init(get_pool_func, send_msg_func):
 
 
 def normalizar_producto(producto: str) -> List[str]:
-    """Genera variaciones de búsqueda para un producto."""
+    """Genera variaciones de búsqueda para un producto (búsqueda amplia)."""
     producto_lower = producto.lower().strip()
     variaciones = [producto_lower]
     
-    # Singular/plural para palabras simples
+    # Singular/plural
     if producto_lower.endswith('s') and len(producto_lower) > 3:
         variaciones.append(producto_lower[:-1])
     if producto_lower.endswith('es') and len(producto_lower) > 4:
@@ -32,25 +33,21 @@ def normalizar_producto(producto: str) -> List[str]:
     if not producto_lower.endswith('s'):
         variaciones.append(producto_lower + 's')
     
-    # Para frases con múltiples palabras, buscar también por palabras clave
+    # Para frases con múltiples palabras
     palabras = producto_lower.split()
     if len(palabras) > 1:
-        # Agregar primera palabra (ej: "tacos" de "tacos de pastor")
         variaciones.append(palabras[0])
         if palabras[0].endswith('s'):
-            variaciones.append(palabras[0][:-1])  # singular
-        # Agregar última palabra si es relevante (ej: "pastor")
+            variaciones.append(palabras[0][:-1])
         if palabras[-1] not in ['de', 'con', 'al', 'la', 'el']:
             variaciones.append(palabras[-1])
-        # Agregar sin preposiciones (ej: "tacos pastor", "taco pastor")
         sin_prep = ' '.join([p for p in palabras if p not in ['de', 'con', 'al', 'la', 'el']])
         if sin_prep != producto_lower:
             variaciones.append(sin_prep)
-            # También singular
             if sin_prep.startswith('tacos'):
                 variaciones.append(sin_prep.replace('tacos', 'taco', 1))
     
-    # Sinónimos específicos
+    # Sinónimos
     sinonimos = {
         'chela': ['cerveza', 'cervezas'],
         'chelas': ['cerveza', 'cervezas'],
@@ -72,12 +69,78 @@ def normalizar_producto(producto: str) -> List[str]:
     if producto_lower in sinonimos:
         variaciones.extend(sinonimos[producto_lower])
     
-    # También buscar sinónimos de palabras individuales
     for palabra in palabras:
         if palabra in sinonimos:
             variaciones.extend(sinonimos[palabra])
     
     return list(dict.fromkeys(variaciones))
+
+
+def variaciones_exactas(producto: str) -> List[str]:
+    """Genera variaciones para búsqueda exacta (solo singular/plural del término completo)."""
+    producto_lower = producto.lower().strip()
+    variaciones = [producto_lower]
+    
+    # Solo singular/plural del término completo
+    if producto_lower.endswith('s') and len(producto_lower) > 3:
+        variaciones.append(producto_lower[:-1])
+    elif not producto_lower.endswith('s'):
+        variaciones.append(producto_lower + 's')
+    
+    # Si tiene múltiples palabras, también sin preposiciones
+    palabras = producto_lower.split()
+    if len(palabras) > 1:
+        sin_prep = ' '.join([p for p in palabras if p not in ['de', 'con', 'al', 'la', 'el']])
+        if sin_prep != producto_lower:
+            variaciones.append(sin_prep)
+            # Singular/plural de la versión sin preposiciones
+            if sin_prep.endswith('s'):
+                variaciones.append(sin_prep[:-1])
+            else:
+                variaciones.append(sin_prep + 's')
+    
+    return list(dict.fromkeys(variaciones))
+
+
+def buscar_producto_en_db(pool, producto: str, presupuesto: int, exacto: bool = True) -> List[Dict]:
+    """
+    Busca producto en la BD.
+    exacto=True: busca el término completo (tacos de pastor)
+    exacto=False: busca palabras individuales (tacos, pastor)
+    """
+    if exacto:
+        variaciones = variaciones_exactas(producto)
+    else:
+        variaciones = normalizar_producto(producto)
+    
+    conditions = " OR ".join(["m.nombre ILIKE %s" for _ in variaciones])
+    patterns = [f"%{v}%" for v in variaciones]
+    
+    sql = f"""
+    SELECT 
+        m.id, m.nombre, m.precio, m.categoria, m.place_id,
+        p.name as negocio, p.address, p.cashback, p.priority,
+        p.plan_activo, p.plan_fecha_vencimiento
+    FROM menu_items m
+    JOIN places p ON m.place_id = p.id
+    WHERE m.disponible = true
+      AND p.is_active = true
+      AND m.precio <= %s
+      AND ({conditions})
+    ORDER BY 
+        CASE WHEN p.cashback = true THEN 0 ELSE 1 END ASC,
+        CASE WHEN p.plan_activo = true AND p.plan_fecha_vencimiento >= CURRENT_DATE THEN 0 ELSE 1 END ASC,
+        p.priority DESC NULLS LAST,
+        m.precio ASC
+    LIMIT 30;
+    """
+    
+    params = [presupuesto] + patterns
+    
+    with pool.connection() as conn:
+        with conn.cursor(row_factory=psycopg.rows.dict_row) as cur:
+            cur.execute(sql, tuple(params))
+            return cur.fetchall()
 
 
 async def search_menu_by_negocio(
@@ -87,7 +150,7 @@ async def search_menu_by_negocio(
 ) -> Dict[str, Dict[str, Any]]:
     """
     Busca múltiples productos y agrupa por negocio.
-    Incluye info de cashback y prioridad para ordenamiento.
+    Usa búsqueda en capas: exacto primero, luego amplio.
     """
     try:
         pool = pool_getter()
@@ -96,40 +159,24 @@ async def search_menu_by_negocio(
             return {}
         
         negocios_data = {}
+        busqueda_amplia = {}  # Guarda si se usó búsqueda amplia por producto
         
         for producto in productos:
-            variaciones = normalizar_producto(producto)
-            print(f"[MENU-BUDGET] Buscando '{producto}' con variaciones: {variaciones}")
+            print(f"[MENU-BUDGET] Buscando '{producto}'...")
             
-            conditions = " OR ".join(["m.nombre ILIKE %s" for _ in variaciones])
-            patterns = [f"%{v}%" for v in variaciones]
+            # CAPA 1: Búsqueda exacta
+            rows = buscar_producto_en_db(pool, producto, presupuesto, exacto=True)
+            busqueda_amplia[producto] = False
             
-            sql = f"""
-            SELECT 
-                m.id, m.nombre, m.precio, m.categoria, m.place_id,
-                p.name as negocio, p.address, p.cashback, p.priority,
-                p.plan_activo, p.plan_fecha_vencimiento
-            FROM menu_items m
-            JOIN places p ON m.place_id = p.id
-            WHERE m.disponible = true
-              AND p.is_active = true
-              AND m.precio <= %s
-              AND ({conditions})
-            ORDER BY 
-                CASE WHEN p.cashback = true THEN 0 ELSE 1 END ASC,
-                CASE WHEN p.plan_fecha_vencimiento >= CURRENT_DATE THEN 0 ELSE 1 END ASC,
-                p.priority DESC NULLS LAST,
-                m.precio ASC
-            LIMIT 30;
-            """
+            # CAPA 2: Si no hay resultados, buscar amplio
+            if not rows:
+                print(f"[MENU-BUDGET] No exacto para '{producto}', buscando amplio...")
+                rows = buscar_producto_en_db(pool, producto, presupuesto, exacto=False)
+                busqueda_amplia[producto] = True
             
-            params = [presupuesto] + patterns
+            print(f"[MENU-BUDGET] Encontrados {len(rows)} resultados para '{producto}'")
             
-            with pool.connection() as conn:
-                with conn.cursor(row_factory=psycopg.rows.dict_row) as cur:
-                    cur.execute(sql, tuple(params))
-                    rows = cur.fetchall()
-            
+            # Procesar resultados
             for row in rows:
                 place_id = row['place_id']
                 
@@ -151,7 +198,8 @@ async def search_menu_by_negocio(
                     'id': row['id'],
                     'nombre': row['nombre'],
                     'precio': precio,
-                    'categoria': row['categoria']
+                    'categoria': row['categoria'],
+                    'busqueda_amplia': busqueda_amplia[producto]
                 })
         
         return negocios_data
@@ -178,8 +226,7 @@ def calcular_combinacion(negocio_data: Dict, productos: List[str], presupuesto: 
     
     for producto in productos:
         if producto in productos_disponibles and productos_disponibles[producto]:
-            # Tomar el más barato de este producto
-            item = productos_disponibles[producto][0]
+            item = productos_disponibles[producto][0]  # El más barato
             cantidad = presupuesto_por_tipo // int(item['precio'])
             if cantidad > 0:
                 gasto = item['precio'] * cantidad
@@ -229,6 +276,7 @@ def format_budget_response_by_negocio(
                 'negocio': data['negocio'],
                 'cashback': data['cashback'],
                 'priority': data['priority'],
+                'plan_activo': data['plan_activo'],
                 'productos_disponibles': data['productos'],
                 **combo
             })
@@ -238,8 +286,10 @@ def format_budget_response_by_negocio(
     
     # ========== CASO 1: HAY LUGARES CON TODO ==========
     if resultados_completos:
+        # Ordenar: cashback > plan activo > prioridad > menor sobra
         resultados_completos.sort(key=lambda x: (
             0 if x['cashback'] else 1,
+            0 if x['plan_activo'] else 1,
             -x['priority'],
             x['sobra']
         ))
@@ -291,17 +341,25 @@ def format_opcion_separada(
     
     sugerencias = []
     total_gasto = 0
+    productos_no_encontrados = []
     
     for producto in productos:
         mejor_opcion = None
         mejor_precio = float('inf')
         
-        # Buscar el mejor lugar para este producto
+        # Buscar el mejor lugar para este producto (priorizar cashback y plan activo)
         for place_id, data in negocios_data.items():
             if producto in data['productos'] and data['productos'][producto]:
-                item = data['productos'][producto][0]  # El más barato
-                if item['precio'] < mejor_precio:
-                    mejor_precio = item['precio']
+                item = data['productos'][producto][0]
+                # Calcular score (menor es mejor)
+                score = item['precio']
+                if data['cashback']:
+                    score -= 1000  # Priorizar cashback
+                if data['plan_activo']:
+                    score -= 500   # Priorizar plan activo
+                
+                if score < mejor_precio:
+                    mejor_precio = score
                     mejor_opcion = {
                         'negocio': data['negocio'],
                         'cashback': data['cashback'],
@@ -310,16 +368,17 @@ def format_opcion_separada(
                     }
         
         if mejor_opcion:
-            cantidad = min(personas, presupuesto_por_producto // int(mejor_opcion['precio']))
-            if cantidad > 0:
-                gasto = mejor_opcion['precio'] * cantidad
-                total_gasto += gasto
-                sugerencias.append({
-                    'producto': producto,
-                    'cantidad': cantidad,
-                    'gasto': gasto,
-                    **mejor_opcion
-                })
+            cantidad = max(1, presupuesto_por_producto // int(mejor_opcion['precio']))
+            gasto = mejor_opcion['precio'] * cantidad
+            total_gasto += gasto
+            sugerencias.append({
+                'producto': producto,
+                'cantidad': cantidad,
+                'gasto': gasto,
+                **mejor_opcion
+            })
+        else:
+            productos_no_encontrados.append(producto)
     
     if not sugerencias:
         productos_str = " y ".join(productos)
@@ -330,6 +389,11 @@ def format_opcion_separada(
         cashback_badge = " 💰" if s['cashback'] else ""
         lines.append(f"📍 *{s['producto'].upper()}* en {s['negocio']}{cashback_badge}")
         lines.append(f"   • {s['cantidad']}x {s['nombre']} = ${s['gasto']:.0f}")
+        lines.append("")
+    
+    # Mostrar productos no encontrados
+    if productos_no_encontrados:
+        lines.append(f"❌ No encontré: {', '.join(productos_no_encontrados)}")
         lines.append("")
     
     sobra = presupuesto - total_gasto
