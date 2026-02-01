@@ -2851,7 +2851,10 @@ async def handle_text_message(wa_id: str, text: str, phone_number_id: str = None
             # Enviar imagen si existe
             image_url = place.get("imagen_url")
             if image_url:
+                print(f"[IMAGE] ✅ Enviando imagen de {place.get('name')}: {image_url[:60]}...")
                 await send_whatsapp_image(wa_id, image_url, phone_number_id=phone_number_id)
+            else:
+                print(f"[IMAGE] ⚠️ {place.get('name')} (id={place.get('id')}) NO tiene imagen_url en BD")
             
             # Guardar en sesión por si quiere más info
             session["last_results"] = [place]
@@ -3030,7 +3033,10 @@ async def handle_text_message(wa_id: str, text: str, phone_number_id: str = None
 
                 image_url = selected_place.get("imagen_url")
                 if image_url:
+                    print(f"[IMAGE] ✅ Enviando imagen de {selected_place.get('name')}: {image_url[:60]}...")
                     await send_whatsapp_image(wa_id, image_url, phone_number_id=phone_number_id)
+                else:
+                    print(f"[IMAGE] ⚠️ {selected_place.get('name')} (id={selected_place.get('id')}) NO tiene imagen_url en BD")
 
                 return
             else:
@@ -3066,7 +3072,10 @@ async def handle_text_message(wa_id: str, text: str, phone_number_id: str = None
             # Enviar imagen si existe
             image_url = place_by_name.get("imagen_url")
             if image_url:
+                print(f"[IMAGE] ✅ Enviando imagen de {place_by_name.get('name')}: {image_url[:60]}...")
                 await send_whatsapp_image(wa_id, image_url, phone_number_id=phone_number_id)
+            else:
+                print(f"[IMAGE] ⚠️ {place_by_name.get('name')} (id={place_by_name.get('id')}) NO tiene imagen_url en BD")
             
             # Guardar en sesión
             session["last_results"] = [place_by_name]
