@@ -315,7 +315,7 @@ def get_hours_status_from_columns(place: dict) -> Tuple[bool, str, bool]:
                 continue
         raise ValueError(f"No se pudo parsear: {time_str}")
 
-    def check_day_status(day_index):
+    def check_day_status(day_index, check_date=None):
         """Verifica el estado de un día específico"""
         open_key, close_key = DAY_MAP[day_index]
         open_time = place.get(open_key)
@@ -328,8 +328,10 @@ def get_hours_status_from_columns(place: dict) -> Tuple[bool, str, bool]:
             open_t = parse_time(open_time)
             close_t = parse_time(close_time)
             
-            open_dt = tz.localize(datetime.combine(now.date(), open_t))
-            close_dt = tz.localize(datetime.combine(now.date(), close_t))
+            # ✅ FIX: Usar la fecha correcta (importante para día anterior)
+            base_date = check_date if check_date else now.date()
+            open_dt = tz.localize(datetime.combine(base_date, open_t))
+            close_dt = tz.localize(datetime.combine(base_date, close_t))
 
             # Manejar horarios que cruzan medianoche
             if close_dt <= open_dt:
@@ -357,7 +359,8 @@ def get_hours_status_from_columns(place: dict) -> Tuple[bool, str, bool]:
     # Esto cubre: Sábado 22:00 - Domingo 3:00 AM
     if now.hour < 6:
         prev_day = (weekday - 1) % 7
-        prev_is_open, prev_hours_text, prev_has_hours = check_day_status(prev_day)
+        yesterday = now.date() - timedelta(days=1)
+        prev_is_open, prev_hours_text, prev_has_hours = check_day_status(prev_day, yesterday)
         if prev_is_open:
             return (True, prev_hours_text, prev_has_hours)
 
@@ -1443,7 +1446,9 @@ def search_place_by_name(business_name: str) -> Optional[Dict[str, Any]]:
                         place["hours"] = {}
                 else:
                     place["hours"] = {}
-                print(f"[DB-SEARCH-NAME] ✅ Encontrado EXACTO: {place['name']}")
+                # ✅ FIX: Calcular is_open_now (antes no se calculaba)
+                place["is_open_now"] = is_open_now_by_day(place)
+                print(f"[DB-SEARCH-NAME] ✅ Encontrado EXACTO: {place['name']} (abierto={place['is_open_now']})")
                 return place
             else:
                 print(f"[DB-SEARCH-NAME] ❌ No coincide exacto: '{business_name}'")
@@ -2810,7 +2815,26 @@ async def handle_text_message(wa_id: str, text: str, phone_number_id: str = None
         place = search_place_by_name(business_name)
         
         if place:
-            # ✅ Encontró negocio por nombre - Enviar detalles
+            # ✅ FIX: Verificar si está abierto ANTES de enviar detalles
+            if not place.get("is_open_now", False):
+                _, hours_info, _ = get_hours_status_from_columns(place)
+                name = place.get("name", business_name)
+                hours_msg = f" ({hours_info})" if hours_info else ""
+                response = f"*{name}* está cerrado ahorita{hours_msg} 😕\n\n¿Se te antoja algo más o quieres buscar otra cosa?"
+                await send_whatsapp_message(wa_id, response, phone_number_id)
+                
+                # 📝 Log
+                asyncio.create_task(log_bot_interaction(
+                    wa_id=wa_id,
+                    session_id=session.get("session_id", str(uuid.uuid4())),
+                    user_message=business_name,
+                    bot_response=response[:500],
+                    intent="business_closed",
+                    selected_place_id=place.get("id")
+                ))
+                return
+            
+            # ✅ Encontró negocio por nombre Y está abierto - Enviar detalles
             details = format_place_details(place, session["language"])
             await send_whatsapp_message(wa_id, details, phone_number_id)
             
@@ -2847,24 +2871,44 @@ async def handle_text_message(wa_id: str, text: str, phone_number_id: str = None
             fallback_results = search_places_without_location(business_name, limit=10)
         
         if fallback_results:
-            # ✅ Encontró en categories - Mostrar como resultados de búsqueda
+            # ✅ Encontró en categories - Filtrar solo ABIERTOS
             print(f"[SEARCH-FALLBACK] ✅ Encontró {len(fallback_results)} en categories para '{business_name}'")
             
-            display_results = fallback_results[:MAX_SUGGESTIONS]
-            session["last_results"] = fallback_results
-            session["last_search"] = {"craving": business_name, "needs_location": False}
-            session["shown_count"] = len(display_results)
+            # ✅ FIX: FILTRAR para mostrar SOLO lugares abiertos
+            open_fallback = [place for place in fallback_results if place.get("is_open_now", False)]
+            print(f"[SEARCH-FALLBACK] {len(open_fallback)} abiertos de {len(fallback_results)} encontrados")
             
-            # Formatear respuesta igual que búsqueda normal
-            intro_message = get_smart_response_message(display_results, business_name, session["language"], session.get("user_location") is not None)
-            results_list = format_results_list(display_results, session["language"])
-            
-            response = f"{intro_message}\n\n{results_list}\n\nMándame el número del que te guste"
-            
-            if not session.get("user_location"):
-                response += " o mándame tu ubicación para ver qué hay cerca 📍"
-            
-            await send_whatsapp_message(wa_id, response, phone_number_id)
+            if open_fallback:
+                display_results = open_fallback[:MAX_SUGGESTIONS]
+                session["last_results"] = open_fallback
+                session["last_search"] = {
+                    "craving": business_name, 
+                    "needs_location": False,
+                    "all_results": open_fallback,
+                    "shown_count": len(display_results)
+                }
+                session["shown_count"] = len(display_results)
+                
+                # Formatear respuesta igual que búsqueda normal
+                intro_message = get_smart_response_message(display_results, business_name, session["language"], session.get("user_location") is not None)
+                results_list = format_results_list(display_results, session["language"])
+                
+                remaining = len(open_fallback) - len(display_results)
+                response = f"{intro_message}\n\n{results_list}\n\nMándame el número del que te guste"
+                
+                if not session.get("user_location"):
+                    if remaining > 0:
+                        response += f"\n\n💬 Tengo {remaining} opciones más.\n📍 Mándame tu ubicación para ver si alguna te conviene más o escribe 'más' para verlas 😊"
+                    else:
+                        response += " o mándame tu ubicación para ver qué hay cerca 📍"
+                elif remaining > 0:
+                    response += f"\n\n💬 Tengo {remaining} opciones más. Escribe 'más' para verlas 😊"
+                
+                await send_whatsapp_message(wa_id, response, phone_number_id)
+            else:
+                # ✅ Todos cerrados
+                response = f"Encontré lugares con '{business_name}' pero todos están cerrados ahorita 😕\n\n¿Se te antoja algo más o mándame tu ubicación para decirte qué está abierto cerca? 📍"
+                await send_whatsapp_message(wa_id, response, phone_number_id)
             
             # ✅ ANALYTICS: Log search
             asyncio.create_task(log_search(
@@ -3002,6 +3046,16 @@ async def handle_text_message(wa_id: str, text: str, phone_number_id: str = None
     if craving and not business_name:
         place_by_name = search_place_by_name(craving)
         if place_by_name:
+            # ✅ FIX: Verificar si está abierto
+            if not place_by_name.get("is_open_now", False):
+                _, hours_info, _ = get_hours_status_from_columns(place_by_name)
+                name = place_by_name.get("name", craving)
+                hours_msg = f" ({hours_info})" if hours_info else ""
+                response = f"*{name}* está cerrado ahorita{hours_msg} 😕\n\n¿Se te antoja algo más o quieres buscar otra cosa?"
+                await send_whatsapp_message(wa_id, response, phone_number_id)
+                session["is_new"] = False
+                return
+            
             print(f"[SMART-SEARCH] '{craving}' es un nombre de negocio, no comida")
             session["is_new"] = False
             
