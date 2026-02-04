@@ -2818,26 +2818,7 @@ async def handle_text_message(wa_id: str, text: str, phone_number_id: str = None
         place = search_place_by_name(business_name)
         
         if place:
-            # ✅ FIX: Verificar si está abierto ANTES de enviar detalles
-            if not place.get("is_open_now", False):
-                _, hours_info, _ = get_hours_status_from_columns(place)
-                name = place.get("name", business_name)
-                hours_msg = f" ({hours_info})" if hours_info else ""
-                response = f"*{name}* está cerrado ahorita{hours_msg} 😕\n\n¿Se te antoja algo más o quieres buscar otra cosa?"
-                await send_whatsapp_message(wa_id, response, phone_number_id)
-                
-                # 📝 Log
-                asyncio.create_task(log_bot_interaction(
-                    wa_id=wa_id,
-                    session_id=session.get("session_id", str(uuid.uuid4())),
-                    user_message=business_name,
-                    bot_response=response[:500],
-                    intent="business_closed",
-                    selected_place_id=place.get("id")
-                ))
-                return
-            
-            # ✅ Encontró negocio por nombre Y está abierto - Enviar detalles
+            # ✅ Enviar detalles completos (format_place_details ya muestra 🟢 ABIERTO o 🔴 CERRADO)
             details = format_place_details(place, session["language"])
             await send_whatsapp_message(wa_id, details, phone_number_id)
             
@@ -3055,20 +3036,10 @@ async def handle_text_message(wa_id: str, text: str, phone_number_id: str = None
     if craving and not business_name:
         place_by_name = search_place_by_name(craving)
         if place_by_name:
-            # ✅ FIX: Verificar si está abierto
-            if not place_by_name.get("is_open_now", False):
-                _, hours_info, _ = get_hours_status_from_columns(place_by_name)
-                name = place_by_name.get("name", craving)
-                hours_msg = f" ({hours_info})" if hours_info else ""
-                response = f"*{name}* está cerrado ahorita{hours_msg} 😕\n\n¿Se te antoja algo más o quieres buscar otra cosa?"
-                await send_whatsapp_message(wa_id, response, phone_number_id)
-                session["is_new"] = False
-                return
-            
             print(f"[SMART-SEARCH] '{craving}' es un nombre de negocio, no comida")
             session["is_new"] = False
             
-            # Enviar detalles del negocio directamente
+            # ✅ Enviar detalles completos (format_place_details ya muestra 🟢 ABIERTO o 🔴 CERRADO)
             details = format_place_details(place_by_name, session["language"])
             await send_whatsapp_message(wa_id, details, phone_number_id)
             
