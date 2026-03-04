@@ -2203,7 +2203,7 @@ def format_place_details(place: Dict[str, Any], language: str) -> str:
     # ✅ CORRECCIÓN: Usar columnas individuales en lugar de hours JSON
     is_open, hours_info, has_hours = get_hours_status_from_columns(place)
     
-    lines = [f"📍 {name}"]
+    lines = [f"📍 *{name}*"]
     
     # Estado de apertura
     if is_open:
@@ -2224,7 +2224,7 @@ def format_place_details(place: Dict[str, Any], language: str) -> str:
         lines.append(f"📞 {phone}")
     
     if main_url:
-        lines.append(f"\n📋 *Ver el menú* 👉 {main_url}")
+        lines.append(f"\nVer el menú 👉 {main_url}")
     
     # ✅ NUEVO: Mostrar link de delivery si está disponible
     if delivery and url_order:
