@@ -2224,7 +2224,7 @@ def format_place_details(place: Dict[str, Any], language: str) -> str:
         lines.append(f"📞 {phone}")
     
     if main_url:
-        lines.append(f"🔗 {main_url}")
+        lines.append(f"\n📋 *Ver el menú* 👉 {main_url}")
     
     # ✅ NUEVO: Mostrar link de delivery si está disponible
     if delivery and url_order:
